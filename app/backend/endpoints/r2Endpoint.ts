@@ -29,7 +29,7 @@ const CFG: R2Config = {
 function getR2Client(): AwsClient | null {
   if (!CFG.accessKeyId || !CFG.secretAccessKey) return null;
   return new AwsClient({
-    accessKeyId: CFG.accessKeyId,
+    accessKeyConfigured: Boolean(CFG.accessKeyId),
     secretAccessKey: CFG.secretAccessKey,
     service: "s3",
     region: "auto",
@@ -61,7 +61,8 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const key = url.searchParams.get("key") || url.searchParams.get("file");
   const intent = url.searchParams.get("intent");
-  const publicImageKey = Boolean(key && !key.includes("..") && !key.includes("\\") && /^(images|products)\//.test(key.replace(/^\/+/, "")));
+  const normalizedImageKey = (key || "").replace(/^\/+/, "");
+  const publicImageKey = Boolean(key && !key.includes("..") && !key.includes("\\") && /^(images|products)\//.test(normalizedImageKey) && /\.(jpg|jpeg|png|webp|gif)$/i.test(normalizedImageKey));
   if (!publicImageKey && intent !== "get_catalog") {
     const auth = await verifyAdminAuth(request, context);
     if (!auth.authorized) return Response.json({ success:false, error:auth.reason || "Unauthorized" }, { status:401 });
@@ -84,12 +85,13 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
         return new Response(`File not found in R2: ${s3Res.status}`, { status: s3Res.status });
       }
 
-      const mimeType = s3Res.headers.get("content-type") || getMimeType(cleanKey);
+      const mimeType = getMimeType(cleanKey);
 
       return new Response(s3Res.body, {
         status: 200,
         headers: {
           "Content-Type": mimeType,
+          "X-Content-Type-Options": "nosniff",
           "Cache-Control": "public, max-age=31536000, immutable",
           "Access-Control-Allow-Origin": "*",
         },
@@ -109,6 +111,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
         if (res.ok) {
           const text = await res.text();
           const data = JSON.parse(text);
+          if (data && typeof data === "object" && data.settings && typeof data.settings === "object") delete data.settings.ziinaApiKey;
 
           return Response.json({
             success: true,
@@ -151,7 +154,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
         const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]);
         remoteObjectsCount = keys.length;
         remoteImages = keys
-          .filter((k) => /\.(jpg|jpeg|png|webp|svg)$/i.test(k))
+          .filter((k) => /\.(jpg|jpeg|png|webp|gif)$/i.test(k))
           .map((k) => {
             if (CFG.publicUrl) {
               return `${CFG.publicUrl}/${k}`;
@@ -236,7 +239,7 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
           {
             success: false,
             r2Synced: false,
-            localSynced: true,
+            localSynced: false,
             latencyMs,
             error: `Failed to save to R2: HTTP ${putRes.status}`,
             detail: (await putRes.text()).slice(0, 400),
@@ -272,14 +275,14 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
       return Response.json({ success: false, error: "imageBase64 is required" }, { status: 400 });
     }
 
-    const m = body.imageBase64.match(/^data:image\/([a-zA-Z0-9]+)(?:\+xml)?;base64,(.+)$/s);
+    if (body.imageBase64.length > 7 * 1024 * 1024) return Response.json({ success:false, error:"Image exceeds the 5 MB upload limit" }, { status:413 });
+    const m = body.imageBase64.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/i);
     if (!m) {
       return Response.json({ success: false, error: "Invalid Base64 format" }, { status: 400 });
     }
     const extRaw = m[1].toLowerCase();
     const ext = extRaw === "jpeg" ? "jpg" : extRaw;
-    const contentType =
-      extRaw === "svg" ? "image/svg+xml" : `image/${extRaw === "jpg" ? "jpeg" : extRaw}`;
+    const contentType = `image/${extRaw === "jpg" ? "jpeg" : extRaw}`;
     const base64Data = m[2];
 
     const safeName = (body.imageName || "product").replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -299,6 +302,7 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
 
     try {
       const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+      if (bytes.byteLength > 5 * 1024 * 1024) return Response.json({ success:false, error:"Image exceeds the 5 MB upload limit" }, { status:413 });
       const putUrl = `${CFG.endpoint}/${CFG.bucket}/${r2Key}`;
 
       const putRes = await r2.fetch(putUrl, {
