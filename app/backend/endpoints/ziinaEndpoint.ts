@@ -1,514 +1,206 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import fs from "fs";
-import path from "path";
-import { updateOrderPaymentInDb } from "../../db/ordersDb";
-import type { ZiinaPaymentIntent, ZiinaCreateIntentPayload } from "../../types/ziina";
+import { getOrdersFromDb, updateOrderPaymentInDb } from "../../db/ordersDb";
+import { verifyAdminAuth } from "../../utils/adminAuth";
 
 const ZIINA_API_BASE = "https://api-v2.ziina.com/api";
 
-export function getZiinaEnvConfig(): { token: string; isTestMode: boolean; webhookSecret: string } {
-	let token = (process.env.ZIINA_API_TOKEN || "").trim();
-	let testMode = process.env.ZIINA_TEST_MODE;
-	let webhookSecret = (process.env.ZIINA_WEBHOOK_SECRET || "").trim();
-
-	// Check .env file on disk if process.env doesn't have it yet
-	try {
-		const envCandidates = [
-			path.resolve(process.cwd(), ".env"),
-			"/app/applet/.env",
-		];
-		for (const p of envCandidates) {
-			if (fs.existsSync(p)) {
-				const content = fs.readFileSync(p, "utf-8");
-				for (const line of content.split("\n")) {
-					const trimmed = line.trim();
-					if (!trimmed || trimmed.startsWith("#")) continue;
-					const [key, ...rest] = trimmed.split("=");
-					const val = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
-					if (key.trim() === "ZIINA_API_TOKEN" && !token) {
-						token = val;
-					}
-					if (key.trim() === "ZIINA_TEST_MODE" && testMode === undefined) {
-						testMode = val;
-					}
-					if (key.trim() === "ZIINA_WEBHOOK_SECRET" && !webhookSecret) {
-						webhookSecret = val;
-					}
-				}
-			}
-		}
-	} catch (e) {
-		console.warn("Could not read .env:", e);
-	}
-
-	return {
-		token: token.replace(/^Bearer\s+/i, "").trim(),
-		isTestMode: testMode !== undefined ? testMode !== "false" : true,
-		webhookSecret,
-	};
+export function getZiinaEnvConfig(context?: any) {
+  const env = (context as any)?.cloudflare?.env || process.env || {};
+  return {
+    token: String(env.ZIINA_API_TOKEN || "").replace(/^Bearer\\s+/i, "").trim(),
+    isTestMode: String(env.ZIINA_TEST_MODE || "false").toLowerCase() === "true",
+    webhookSecret: String(env.ZIINA_WEBHOOK_SECRET || "").trim(),
+  };
 }
 
-export async function handleZiinaStatus({ request }: LoaderFunctionArgs) {
-	const envConfig = getZiinaEnvConfig();
-	const hasToken = Boolean(envConfig.token);
-	let maskedToken = "";
-	if (hasToken) {
-		maskedToken =
-			envConfig.token.length > 8
-				? `${envConfig.token.substring(0, 4)}••••${envConfig.token.substring(envConfig.token.length - 4)}`
-				: "••••••••";
-	}
+function constantTimeEqual(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) difference |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return difference === 0;
+}
+function toHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+async function verifyWebhookSignature(rawBody: string, suppliedSignature: string, secret: string): Promise<boolean> {
+  if (!suppliedSignature || !secret) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const expected = toHex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)));
+  return constantTimeEqual(expected.toLowerCase(), suppliedSignature.trim().toLowerCase());
+}
 
-	return Response.json({
-		success: true,
-		configured: hasToken,
-		envConfigured: hasToken,
-		maskedToken,
-		testMode: envConfig.isTestMode,
-		mode: envConfig.isTestMode ? "sandbox" : "production",
-		hasWebhookSecret: Boolean(envConfig.webhookSecret),
-		apiUrl: ZIINA_API_BASE,
-	});
+export async function handleZiinaStatus({ request, context }: LoaderFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  const config = getZiinaEnvConfig(context);
+  const token = config.token;
+  const maskedToken = token.length > 8 ? token.slice(0, 4) + "••••" + token.slice(-4) : (token ? "••••••••" : "");
+  return Response.json({
+    success: true,
+    configured: Boolean(token),
+    envConfigured: Boolean(token),
+    maskedToken,
+    testMode: config.isTestMode,
+    mode: config.isTestMode ? "sandbox" : "production",
+    hasWebhookSecret: Boolean(config.webhookSecret),
+    apiUrl: ZIINA_API_BASE,
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function handleZiinaCreateIntent({ request, context }: ActionFunctionArgs) {
-	const d1 = (context as any)?.cloudflare?.env?.DB;
+  const d1 = (context as any)?.cloudflare?.env?.DB;
+  try {
+    const body = await request.json() as any;
+    const config = getZiinaEnvConfig(context);
+    if (body.intent === "ping") {
+      const auth = await verifyAdminAuth(request, context);
+      if (!auth.authorized) return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+      if (!config.token) return Response.json({ success: false, configured: false, error: "ZIINA_API_TOKEN is not configured" }, { status: 503 });
+      const response = await fetch(ZIINA_API_BASE + "/payment_intent", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + config.token, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          amount: 500,
+          currency_code: "AED",
+          message: "Teen Liwa connection diagnostic",
+          success_url: new URL("/payment/callback", new URL(request.url).origin).toString(),
+          cancel_url: new URL("/payment/callback?status=cancelled", new URL(request.url).origin).toString(),
+          failure_url: new URL("/payment/callback?status=failed", new URL(request.url).origin).toString(),
+          test: config.isTestMode,
+          allow_tips: false,
+        }),
+      });
+      const data = await response.json().catch(() => ({})) as any;
+      return Response.json({ success: response.ok && Boolean(data.redirect_url), configured: true, isLiveGateway: response.ok, statusCode: response.status, redirect_url: data.redirect_url, payment_intent_id: data.id, error: response.ok ? undefined : (data.message || "Ziina rejected the request") }, { status: response.ok ? 200 : 502 });
+    }
 
-	try {
-		const body = (await request.json()) as {
-			intent?: string;
-			orderId?: string;
-			orderNumber?: string;
-			amount?: number;
-			currency?: string;
-			customerName?: string;
-			customerPhone?: string;
-			customerEmail?: string;
-			apiToken?: string;
-			testMode?: boolean;
-		};
+    if (!d1) return Response.json({ success: false, error: "Order database is unavailable" }, { status: 503 });
+    if (!config.token) return Response.json({ success: false, error: "Ziina payments are not configured" }, { status: 503 });
+    const orderId = String(body.orderId || "").trim();
+    if (!orderId) return Response.json({ success: false, error: "orderId is required" }, { status: 400 });
 
-		function getPublicBaseUrl(req: Request): string {
-			const origin = req.headers.get("origin");
-			if (origin && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
-				return origin.replace(/\/+$/, "");
-			}
+    const { orders } = await getOrdersFromDb(d1);
+    const order = orders.find((candidate) => candidate.id === orderId);
+    if (!order) return Response.json({ success: false, error: "Order not found" }, { status: 404 });
+    if (order.paymentMethod !== "ziina") return Response.json({ success: false, error: "Order is not configured for Ziina" }, { status: 400 });
+    if (order.paymentStatus === "paid") return Response.json({ success: false, error: "Order is already paid" }, { status: 409 });
+    if (order.ziinaPaymentIntentId) return Response.json({ success: false, error: "A payment intent already exists for this order. Resume that payment or contact support." }, { status: 409 });
 
-			const referer = req.headers.get("referer");
-			if (referer) {
-				try {
-					const u = new URL(referer);
-					if (!u.hostname.includes("localhost") && !u.hostname.includes("127.0.0.1")) {
-						return `${u.protocol}//${u.host}`;
-					}
-				} catch {}
-			}
+    const amountInFils = Math.round(Number(order.total) * 100);
+    if (!Number.isSafeInteger(amountInFils) || amountInFils < 200) return Response.json({ success: false, error: "Invalid order amount" }, { status: 400 });
+    const base = new URL(request.url).origin;
+    const encodedOrder = encodeURIComponent(order.id);
+    const payload = {
+      amount: amountInFils,
+      currency_code: "AED",
+      message: "Teen Liwa Order #" + order.orderNumber,
+      success_url: base + "/payment/callback?status=success&orderId=" + encodedOrder + "&payment_intent_id={PAYMENT_INTENT_ID}",
+      cancel_url: base + "/payment/callback?status=cancelled&orderId=" + encodedOrder + "&payment_intent_id={PAYMENT_INTENT_ID}",
+      failure_url: base + "/payment/callback?status=failed&orderId=" + encodedOrder + "&payment_intent_id={PAYMENT_INTENT_ID}",
+      test: config.isTestMode,
+      allow_tips: false,
+    };
 
-			const xForwardedHost = req.headers.get("x-forwarded-host");
-			const xForwardedProto = req.headers.get("x-forwarded-proto") || "https";
-			if (xForwardedHost && !xForwardedHost.includes("localhost") && !xForwardedHost.includes("127.0.0.1")) {
-				return `${xForwardedProto}://${xForwardedHost}`;
-			}
+    const response = await fetch(ZIINA_API_BASE + "/payment_intent", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + config.token, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({})) as any;
+    if (!response.ok || !data.id || !data.redirect_url) {
+      return Response.json({ success: false, error: data.message || "Ziina could not create a payment intent", statusCode: response.status }, { status: 502 });
+    }
 
-			const host = req.headers.get("host");
-			if (host && !host.includes("localhost") && !host.includes("127.0.0.1")) {
-				return `https://${host}`;
-			}
-
-			return "https://ais-dev-hsqw5onlp3tiaxn5ifdcoa-583061957492.europe-west1.run.app";
-		}
-
-		const publicBase = getPublicBaseUrl(request);
-		const envConfig = getZiinaEnvConfig();
-		const token = envConfig.token || (body.apiToken ? body.apiToken.replace(/^Bearer\s+/i, "").trim() : "");
-		const isTestMode = envConfig.isTestMode;
-
-		// 1. Connection Ping / Test Diagnostic Mode
-		if (body.intent === "ping") {
-			if (!token) {
-				return Response.json({
-					success: false,
-					configured: false,
-					isLiveGateway: false,
-					error: "لم يتم العثور على ZIINA_API_TOKEN في ملف .env",
-					message: "يرجى تعيين ZIINA_API_TOKEN في ملف .env بالخادم لتفعيل الاتصال المباشر بالبوابة.",
-				});
-			}
-
-			const t0 = Date.now();
-			const pingPayload: ZiinaCreateIntentPayload = {
-				amount: 500, // 5.00 AED test ping
-				currency_code: "AED",
-				message: `Teen Liwa Connection Diagnostic [${new Date().toLocaleTimeString("en-GB")}]`,
-				success_url: `${publicBase}/payment/callback?status=success&test_ping=true`,
-				cancel_url: `${publicBase}/payment/callback?status=cancelled&test_ping=true`,
-				failure_url: `${publicBase}/payment/callback?status=failed&test_ping=true`,
-				test: isTestMode,
-				allow_tips: false,
-			};
-
-			try {
-				let res = await fetch(`${ZIINA_API_BASE}/payment_intent`, {
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${token}`,
-						"Content-Type": "application/json",
-						Accept: "application/json",
-					},
-					body: JSON.stringify(pingPayload),
-				});
-
-				let latencyMs = Date.now() - t0;
-				let resText = await res.text();
-				let parsedData: any = null;
-				try { parsedData = JSON.parse(resText); } catch {}
-
-				// Retry with flipped test mode if test mode mismatch occurs
-				if (!res.ok && (res.status === 400 || res.status === 422 || resText.toLowerCase().includes("test"))) {
-					const retryPayload = { ...pingPayload, test: !pingPayload.test };
-					const retryRes = await fetch(`${ZIINA_API_BASE}/payment_intent`, {
-						method: "POST",
-						headers: {
-							Authorization: `Bearer ${token}`,
-							"Content-Type": "application/json",
-							Accept: "application/json",
-						},
-						body: JSON.stringify(retryPayload),
-					});
-					if (retryRes.ok) {
-						res = retryRes;
-						resText = await retryRes.text();
-						try { parsedData = JSON.parse(resText); } catch {}
-					}
-				}
-
-				if (res.ok && parsedData?.redirect_url) {
-					return Response.json({
-						success: true,
-						configured: true,
-						isLiveGateway: true,
-						latencyMs,
-						payment_intent_id: parsedData.id,
-						redirect_url: parsedData.redirect_url,
-						mode: isTestMode ? "sandbox" : "production",
-						message: `الاتصال ببوابة Ziina ناجح ومستقر (زمن الاستجابة: ${latencyMs}ms)`,
-						timestamp: new Date().toISOString(),
-					});
-				} else {
-					return Response.json({
-						success: false,
-						configured: true,
-						isLiveGateway: false,
-						latencyMs,
-						error: parsedData?.message || `خطأ استجابة من بوابة Ziina (رمز ${res.status})`,
-						detail: resText,
-						statusCode: res.status,
-					});
-				}
-			} catch (pingErr) {
-				return Response.json({
-					success: false,
-					configured: true,
-					error: `تعذر الوصول لخوادم Ziina: ${pingErr instanceof Error ? pingErr.message : "Network error"}`,
-				});
-			}
-		}
-
-		// 2. Standard Order Payment Intent Creation
-		const { orderId, orderNumber, amount } = body;
-		if (!orderId || !amount || amount <= 0) {
-			return Response.json(
-				{ success: false, error: "orderId and valid amount are required" },
-				{ status: 400 },
-			);
-		}
-
-		const currency = body.currency || "AED";
-		const amountInFils = Math.round(amount * 100);
-
-		const successUrl = `${publicBase}/payment/callback?status=success&orderId=${encodeURIComponent(orderId)}&payment_intent_id={PAYMENT_INTENT_ID}`;
-		const cancelUrl = `${publicBase}/payment/callback?status=cancelled&orderId=${encodeURIComponent(orderId)}&payment_intent_id={PAYMENT_INTENT_ID}`;
-		const failureUrl = `${publicBase}/payment/callback?status=failed&orderId=${encodeURIComponent(orderId)}&payment_intent_id={PAYMENT_INTENT_ID}`;
-
-		const payload: ZiinaCreateIntentPayload = {
-			amount: amountInFils,
-			currency_code: currency,
-			message: `Teen Liwa Order #${orderNumber || orderId}`,
-			success_url: successUrl,
-			cancel_url: cancelUrl,
-			failure_url: failureUrl,
-			test: isTestMode,
-			allow_tips: false,
-		};
-
-		let paymentIntent: ZiinaPaymentIntent | null = null;
-		let isLiveGateway = false;
-
-		if (token) {
-			try {
-				const res = await fetch(`${ZIINA_API_BASE}/payment_intent`, {
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${token}`,
-						"Content-Type": "application/json",
-						Accept: "application/json",
-					},
-					body: JSON.stringify(payload),
-				});
-
-				const resText = await res.text();
-				let parsedData: any = null;
-				try {
-					parsedData = JSON.parse(resText);
-				} catch {}
-
-				if (res.ok && parsedData?.redirect_url) {
-					paymentIntent = parsedData as ZiinaPaymentIntent;
-					isLiveGateway = true;
-				} else {
-					console.warn(`[Ziina Gateway HTTP ${res.status}] ${resText}`);
-
-					// Auto-retry with flipped test flag if test/live mismatch occurs
-					const isTestError =
-						res.status === 400 ||
-						res.status === 422 ||
-						resText.toLowerCase().includes("test");
-
-					if (isTestError) {
-						console.log(`[Ziina Gateway] Retrying with test=${!payload.test}...`);
-						const retryPayload = { ...payload, test: !payload.test };
-						const retryRes = await fetch(`${ZIINA_API_BASE}/payment_intent`, {
-							method: "POST",
-							headers: {
-								Authorization: `Bearer ${token}`,
-								"Content-Type": "application/json",
-								Accept: "application/json",
-							},
-							body: JSON.stringify(retryPayload),
-						});
-
-						const retryText = await retryRes.text();
-						let retryData: any = null;
-						try {
-							retryData = JSON.parse(retryText);
-						} catch {}
-
-						if (retryRes.ok && retryData?.redirect_url) {
-							paymentIntent = retryData as ZiinaPaymentIntent;
-							isLiveGateway = true;
-						} else {
-							return Response.json(
-								{
-									success: false,
-									error:
-										retryData?.message ||
-										parsedData?.message ||
-										`خطأ في مفتاح Ziina (رمز ${retryRes.status})`,
-									detail: retryText,
-									isLiveGateway: false,
-								},
-								{ status: 400 },
-							);
-						}
-					} else {
-						return Response.json(
-							{
-								success: false,
-								error:
-									parsedData?.message ||
-									`تعذر قبول رمز الوصول لبوابة Ziina (رمز ${res.status})`,
-								detail: resText,
-								isLiveGateway: false,
-							},
-							{ status: 400 },
-						);
-					}
-				}
-			} catch (fetchErr) {
-				console.error("[Ziina Gateway Fetch Error]:", fetchErr);
-				return Response.json(
-					{
-						success: false,
-						error: `تعذر الاتصال بخوادم Ziina: ${fetchErr instanceof Error ? fetchErr.message : "Network error"}`,
-					},
-					{ status: 502 },
-				);
-			}
-		}
-
-		if (!paymentIntent) {
-			const mockIntentId = `pi_test_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-			// Use relative path for seamless client navigation without broken localhost references
-			const mockRedirectUrl = `/payment/callback?status=success&orderId=${encodeURIComponent(orderId)}&payment_intent_id=${mockIntentId}&simulated=true`;
-
-			paymentIntent = {
-				id: mockIntentId,
-				amount: amountInFils,
-				currency_code: currency,
-				status: "requires_payment_instrument",
-				redirect_url: mockRedirectUrl,
-				test: true,
-				created_at: new Date().toISOString(),
-			};
-		}
-
-		try {
-			await updateOrderPaymentInDb(
-				orderId,
-				"pending",
-				{ ziinaPaymentIntentId: paymentIntent.id },
-				d1,
-			);
-		} catch (dbErr) {
-			console.warn("Could not update order paymentIntentId in DB:", dbErr);
-		}
-
-		return Response.json({
-			success: true,
-			payment_intent: paymentIntent,
-			redirect_url: paymentIntent.redirect_url,
-			isLiveGateway,
-			testMode: isTestMode,
-		});
-	} catch (err) {
-		console.error("Ziina create-intent error:", err);
-		return Response.json(
-			{
-				success: false,
-				error: "Failed to initialize payment intent",
-				detail: err instanceof Error ? err.message : "unknown",
-			},
-			{ status: 500 },
-		);
-	}
+    await updateOrderPaymentInDb(order.id, "pending", { ziinaPaymentIntentId: data.id, ziinaRedirectUrl: data.redirect_url }, d1);
+    return Response.json({ success: true, payment_intent: data, redirect_url: data.redirect_url, isLiveGateway: true, testMode: config.isTestMode });
+  } catch (error) {
+    console.error("Ziina create-intent error:", error);
+    return Response.json({ success: false, error: "Failed to initialize payment intent" }, { status: 500 });
+  }
 }
 
 export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs) {
-	const d1 = (context as any)?.cloudflare?.env?.DB;
-	const url = new URL(request.url);
-	const paymentIntentId = url.searchParams.get("id") || url.searchParams.get("payment_intent_id");
-	const orderId = url.searchParams.get("orderId");
-	const simulated = url.searchParams.get("simulated") === "true";
-	const apiToken = (url.searchParams.get("token") || getZiinaEnvConfig().token || "").trim();
+  const d1 = (context as any)?.cloudflare?.env?.DB;
+  const config = getZiinaEnvConfig(context);
+  const url = new URL(request.url);
+  const paymentIntentId = url.searchParams.get("payment_intent_id") || url.searchParams.get("id") || "";
+  const orderId = url.searchParams.get("orderId") || "";
+  if (!paymentIntentId || !orderId) return Response.json({ success: false, error: "payment_intent_id and orderId are required" }, { status: 400 });
+  if (!d1 || !config.token) return Response.json({ success: false, error: "Payment verification is temporarily unavailable" }, { status: 503 });
 
-	if (!paymentIntentId) {
-		return Response.json(
-			{ success: false, error: "payment_intent_id is required" },
-			{ status: 400 },
-		);
-	}
+  try {
+    const { orders } = await getOrdersFromDb(d1);
+    const order = orders.find((candidate) => candidate.id === orderId);
+    if (!order || order.ziinaPaymentIntentId !== paymentIntentId) return Response.json({ success: false, error: "Payment intent does not belong to this order" }, { status: 404 });
 
-	try {
-		let intentData: ZiinaPaymentIntent | null = null;
-		let isLive = false;
+    const response = await fetch(ZIINA_API_BASE + "/payment_intent/" + encodeURIComponent(paymentIntentId), {
+      headers: { Authorization: "Bearer " + config.token, Accept: "application/json" },
+    });
+    if (!response.ok) return Response.json({ success: false, error: "Ziina could not confirm this payment", statusCode: response.status }, { status: 502 });
+    const intent = await response.json() as any;
+    const expectedAmount = Math.round(Number(order.total) * 100);
+    if (intent.id !== paymentIntentId || Number(intent.amount) !== expectedAmount || String(intent.currency_code).toUpperCase() !== "AED") {
+      return Response.json({ success: false, error: "Payment details do not match the order" }, { status: 409 });
+    }
 
-		if (apiToken && !simulated && !paymentIntentId.startsWith("pi_test_")) {
-			try {
-				const res = await fetch(`${ZIINA_API_BASE}/payment_intent/${encodeURIComponent(paymentIntentId)}`, {
-					headers: {
-						Authorization: `Bearer ${apiToken}`,
-						Accept: "application/json",
-					},
-				});
-
-				if (res.ok) {
-					intentData = (await res.json()) as ZiinaPaymentIntent;
-					isLive = true;
-				}
-			} catch (fetchErr) {
-				console.error("[Ziina Verify Fetch Error]:", fetchErr);
-			}
-		}
-
-		if (!intentData) {
-			const isCompleted = url.searchParams.get("status") !== "failed" && url.searchParams.get("status") !== "cancelled";
-			intentData = {
-				id: paymentIntentId,
-				amount: 10000,
-				currency_code: "AED",
-				status: isCompleted ? "completed" : "failed",
-				test: true,
-				card_details: {
-					card_last_four: "4242",
-					card_brand: "Visa / Apple Pay",
-					card_issuer: "First Abu Dhabi Bank (FAB)",
-				},
-				created_at: new Date().toISOString(),
-			};
-		}
-
-		const isPaid = intentData.status === "completed";
-		const targetOrderId = orderId || paymentIntentId;
-
-		if (targetOrderId) {
-			try {
-				await updateOrderPaymentInDb(
-					targetOrderId,
-					isPaid ? "paid" : "failed",
-					{
-						ziinaPaymentIntentId: paymentIntentId,
-						cardBrand: intentData.card_details?.card_brand,
-						cardLastFour: intentData.card_details?.card_last_four,
-						orderStatus: isPaid ? "processing" : "pending",
-					},
-					d1,
-				);
-			} catch (dbErr) {
-				console.warn("Could not record payment verification in DB:", dbErr);
-			}
-		}
-
-		return Response.json({
-			success: true,
-			status: intentData.status,
-			isPaid,
-			intent: intentData,
-			isLive,
-		});
-	} catch (err) {
-		return Response.json(
-			{
-				success: false,
-				error: "Failed to verify payment intent",
-				detail: err instanceof Error ? err.message : "unknown",
-			},
-			{ status: 500 },
-		);
-	}
+    const state = String(intent.status || "").toLowerCase();
+    const isPaid = state === "completed";
+    const paymentStatus = isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
+    if (paymentStatus !== "pending") {
+      await updateOrderPaymentInDb(order.id, paymentStatus, {
+        ziinaPaymentIntentId: paymentIntentId,
+        cardBrand: intent.card_details?.card_brand,
+        cardLastFour: intent.card_details?.card_last_four,
+        orderStatus: isPaid ? "processing" : "pending",
+      }, d1);
+    }
+    return Response.json({ success: true, status: state, isPaid, intent: { id: intent.id, amount: intent.amount, currency_code: intent.currency_code, status: intent.status, card_details: intent.card_details }, isLive: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    console.error("Ziina verification error:", error);
+    return Response.json({ success: false, error: "Failed to verify payment intent" }, { status: 500 });
+  }
 }
 
 export async function handleZiinaWebhook({ request, context }: ActionFunctionArgs) {
-	const d1 = (context as any)?.cloudflare?.env?.DB;
+  const d1 = (context as any)?.cloudflare?.env?.DB;
+  const config = getZiinaEnvConfig(context);
+  if (!d1 || !config.token) return Response.json({ success: false, error: "Payment processing is not configured" }, { status: 503 });
+  if (!config.webhookSecret) return Response.json({ success: false, error: "Webhook secret is not configured" }, { status: 503 });
 
-	try {
-		const payload = (await request.json()) as any;
-		const eventType = payload.event || payload.type || "";
-		const intent = payload.data?.object || payload.data || payload;
+  const rawBody = await request.text();
+  const signature = request.headers.get("X-Hmac-Signature") || "";
+  if (!await verifyWebhookSignature(rawBody, signature, config.webhookSecret)) {
+    return Response.json({ success: false, error: "Invalid webhook signature" }, { status: 401 });
+  }
 
-		if (intent && intent.id) {
-			const status = intent.status === "completed" ? "paid" : intent.status === "failed" ? "failed" : "pending";
-			const orderId = intent.metadata?.orderId || intent.message?.match(/#([a-zA-Z0-9_-]+)/)?.[1] || intent.id;
+  try {
+    const payload = JSON.parse(rawBody) as any;
+    if (payload.event !== "payment_intent.status.updated") return Response.json({ success: true, received: true });
+    const intent = payload.data?.object || payload.data;
+    if (!intent?.id) return Response.json({ success: false, error: "Invalid payment event" }, { status: 400 });
 
-			if (orderId) {
-				await updateOrderPaymentInDb(
-					orderId,
-					status,
-					{
-						ziinaPaymentIntentId: intent.id,
-						cardBrand: intent.card_details?.card_brand,
-						cardLastFour: intent.card_details?.card_last_four,
-						orderStatus: status === "paid" ? "processing" : "pending",
-					},
-					d1
-				);
-			}
-		}
+    const { orders } = await getOrdersFromDb(d1);
+    const order = orders.find((candidate) => candidate.ziinaPaymentIntentId === intent.id);
+    if (!order) return Response.json({ success: false, error: "No matching order" }, { status: 404 });
 
-		return Response.json({ success: true, received: true, event: eventType });
-	} catch (err) {
-		return Response.json(
-			{ success: false, error: "Failed to process webhook" },
-			{ status: 400 },
-		);
-	}
+    const expectedAmount = Math.round(Number(order.total) * 100);
+    if (Number(intent.amount) !== expectedAmount || String(intent.currency_code).toUpperCase() !== "AED") {
+      return Response.json({ success: false, error: "Webhook payment amount or currency mismatch" }, { status: 409 });
+    }
+    const state = String(intent.status || "").toLowerCase();
+    const isPaid = state === "completed";
+    const paymentStatus = isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
+    if (paymentStatus !== "pending") {
+      await updateOrderPaymentInDb(order.id, paymentStatus, {
+        ziinaPaymentIntentId: intent.id,
+        cardBrand: intent.card_details?.card_brand,
+        cardLastFour: intent.card_details?.card_last_four,
+        orderStatus: isPaid ? "processing" : "pending",
+      }, d1);
+    }
+    return Response.json({ success: true, received: true });
+  } catch (error) {
+    console.error("Ziina webhook processing error:", error);
+    return Response.json({ success: false, error: "Failed to process webhook" }, { status: 400 });
+  }
 }
