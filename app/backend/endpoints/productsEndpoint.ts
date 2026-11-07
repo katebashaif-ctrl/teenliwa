@@ -79,7 +79,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
     }
   }
 
-  if (intent === "create_product" || method === "POST") {
+  if (intent === "create_product") {
     const { product } = body;
     if (!product || !product.name || product.price === undefined) {
       return Response.json({ success: false, error: "Missing required product fields (name and price)" }, { status: 400 });
