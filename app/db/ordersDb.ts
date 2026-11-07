@@ -1,6 +1,5 @@
 import type { Order, OrderItem } from "../types/store";
 import { AwsClient } from "aws4fetch";
-import { INITIAL_ORDERS } from "../data/initialData";
 
 export interface D1DatabaseLike {
   prepare: (query: string) => {
@@ -219,42 +218,6 @@ function mapD1RowToOrder(row: any): Order {
     createdAt: row.created_at || new Date().toISOString(),
     items,
   };
-}
-
-/**
- * Seed initial sample orders into D1 if database table is completely empty
- */
-async function seedInitialOrdersToD1(d1: D1DatabaseLike): Promise<void> {
-  try {
-    for (const order of INITIAL_ORDERS) {
-      await d1
-        .prepare(
-          `INSERT OR IGNORE INTO orders (
-            id, tracking_number, customer_name, phone, emirate, address,
-            items, subtotal, delivery_fee, total, payment_method, status, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          order.id,
-          order.orderNumber,
-          order.customerName,
-          order.customerPhone,
-          order.customerEmirate,
-          order.customerAddress,
-          JSON.stringify(order.items),
-          order.subtotal,
-          order.deliveryFee,
-          order.total,
-          order.paymentMethod,
-          order.status,
-          order.notes || "",
-          order.createdAt
-        )
-        .run();
-    }
-  } catch (seedErr) {
-    console.warn("Could not seed initial orders to D1:", seedErr);
-  }
 }
 
 /**
