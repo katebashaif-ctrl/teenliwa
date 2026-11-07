@@ -29,7 +29,7 @@ const CFG: R2Config = {
 function getR2Client(): AwsClient | null {
   if (!CFG.accessKeyId || !CFG.secretAccessKey) return null;
   return new AwsClient({
-    accessKeyConfigured: Boolean(CFG.accessKeyId),
+    accessKeyId: CFG.accessKeyId,
     secretAccessKey: CFG.secretAccessKey,
     service: "s3",
     region: "auto",
@@ -177,7 +177,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
     publicUrlConfigured: Boolean(CFG.publicUrl),
     bucket: CFG.bucket,
     accountId: CFG.accountId,
-    accessKeyId: CFG.accessKeyId,
+    accessKeyConfigured: Boolean(CFG.accessKeyId),
     endpoint: CFG.endpoint,
     publicUrl: CFG.publicUrl,
     hasSecretKey: Boolean(CFG.secretAccessKey),
@@ -258,7 +258,7 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
         {
           success: false,
           r2Synced: false,
-          localSynced: true,
+          localSynced: false,
           error: "Exception uploading to R2",
           detail: e instanceof Error ? e.message : "unknown",
         },
