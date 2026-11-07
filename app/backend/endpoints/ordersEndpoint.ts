@@ -164,7 +164,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     }
 
     try {
-      await updateOrderPaymentInDb(
+      const saved = await updateOrderPaymentInDb(
         orderId,
         paymentStatus || "pending",
         {
@@ -177,6 +177,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
         },
         d1
       );
+      if (!saved) return Response.json({ success:false, error:"Payment update could not be persisted" }, { status:503 });
       return Response.json({
         success: true,
         message: "Order payment details updated successfully",
