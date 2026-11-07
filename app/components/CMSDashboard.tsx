@@ -1219,7 +1219,7 @@ export const CMSDashboard: React.FC = () => {
 							<div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950 leading-6">
   <strong>إعداد آمن لمفاتيح R2</strong>
   <p>افتح Cloudflare Dashboard ثم Workers & Pages ثم teenliwa ثم Settings ثم Variables and Secrets. أضف المفاتيح كـ Secrets، ثم أعد نشر Worker.</p>
-  <p dir="ltr" className="font-mono">CLOUDFLARE_ACCOUNT_ID<br/>CLOUDFLARE_R2_ACCESS_KEY_ID<br/>CLOUDFLARE_R2_SECRET_ACCESS_KEY<br/>CLOUDFLARE_R2_BUCKET<br/>CLOUDFLARE_R2_ENDPOINT<br/>CLOUDFLARE_R2_PUBLIC_URL</p>
+  <p dir="ltr" className="font-mono">CLOUDFLARE_ACCOUNT_ID<br/>CLOUDFLARE_R2_ACCESS_KEY_ID<br/>CLOUDFLARE_R2_SECRET_ACCESS_KEY<br/>CLOUDFLARE_R2_BUCKET<br/>CLOUDFLARE_R2_ENDPOINT</p>
 </div>
 						</div>
 
