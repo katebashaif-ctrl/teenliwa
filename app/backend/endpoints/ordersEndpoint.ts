@@ -119,6 +119,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
       };
       if (!normalizedOrder.customerName || !normalizedOrder.customerPhone || !normalizedOrder.customerAddress) return Response.json({ success: false, error: "Customer name, phone and address are required" }, { status: 400 });
       const result = await createOrderInDb(normalizedOrder, d1);
+      if (!result.dbSaved) return Response.json({ success:false, error:"Order could not be durably saved. Please retry." }, { status:503 });
       return Response.json({
         success: true,
         message: "Order placed and saved successfully",
@@ -141,7 +142,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
   }
 
   // Admin routes for updating/deleting orders
-  const auth = verifyAdminAuth(request, context);
+  const auth = await verifyAdminAuth(request, context);
   if (!auth.authorized) {
     return Response.json(
       { success: false, error: "Unauthorized. Admin credentials required.", code: "UNAUTHORIZED" },
