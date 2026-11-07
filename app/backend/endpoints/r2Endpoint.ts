@@ -126,7 +126,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
             fromR2: true,
             data,
             message: "Catalog fetched from Cloudflare R2",
-          });
+          }, { headers: { "Cache-Control":"no-store" } });
         }
       } catch (err) {
         console.warn("R2 catalog fetch exception, checking local fallback:", err);
@@ -162,7 +162,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
         const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]);
         remoteObjectsCount = keys.length;
         remoteImages = keys
-          .filter((k) => /\.(jpg|jpeg|png|webp|gif)$/i.test(k))
+          .filter((k) => /^(images|products)\//.test(k) && /\.(jpg|jpeg|png|webp|gif)$/i.test(k))
           .map((k) => {
             if (CFG.publicUrl) {
               return `${CFG.publicUrl}/${k}`;
@@ -237,7 +237,7 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
           "Content-Type": "application/json",
           "Cache-Control": "no-cache",
         },
-        body: JSON.stringify(body.data, null, 2),
+        body: JSON.stringify(sanitizePublicCatalog(body.data), null, 2),
       });
 
       const latencyMs = Date.now() - t0;
