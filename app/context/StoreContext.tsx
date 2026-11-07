@@ -251,7 +251,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				}
 				if (isClient) {
 					try {
-						localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(json.orders));
 					} catch (e) {}
 				}
 				setIsOrdersLoading(false);
@@ -405,8 +404,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				}
 			}
 
-			const savedOrders = localStorage.getItem(STORAGE_KEYS.ORDERS);
-			if (savedOrders) setOrders(JSON.parse(savedOrders));
 
 			const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
 			if (savedSettings) { const parsedSettings = JSON.parse(savedSettings); delete parsedSettings.ziinaApiKey; setSettings({ ...INITIAL_SETTINGS, ...parsedSettings, ziinaApiKey: "" }); }
@@ -462,7 +459,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	useEffect(() => {
 		if (!isClient) return;
 		try {
-			localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
 		} catch (e) {}
 	}, [orders, isClient]);
 
@@ -1022,7 +1018,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			});
 			if (typeof window !== "undefined") {
 				try {
-					localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(updated));
 				} catch {}
 			}
 			return updated;
@@ -1190,7 +1185,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		setCart([]);
 		if (isClient) {
 			localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-			localStorage.removeItem(STORAGE_KEYS.ORDERS);
 			localStorage.removeItem(STORAGE_KEYS.SETTINGS);
 			localStorage.removeItem(STORAGE_KEYS.CART);
 			localStorage.removeItem(STORAGE_KEYS.META_CAMPAIGNS);
