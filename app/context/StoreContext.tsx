@@ -409,7 +409,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (savedOrders) setOrders(JSON.parse(savedOrders));
 
 			const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-			if (savedSettings) setSettings(JSON.parse(savedSettings));
+			if (savedSettings) { const parsedSettings = JSON.parse(savedSettings); delete parsedSettings.ziinaApiKey; setSettings({ ...INITIAL_SETTINGS, ...parsedSettings, ziinaApiKey: "" }); }
 
 			const savedCart = localStorage.getItem(STORAGE_KEYS.CART);
 			if (savedCart) setCart(JSON.parse(savedCart));
@@ -469,7 +469,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	useEffect(() => {
 		if (!isClient) return;
 		try {
-			localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+			const safeSettings = { ...settings } as any; delete safeSettings.ziinaApiKey; localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(safeSettings));
 		} catch (e) {}
 	}, [settings, isClient]);
 
