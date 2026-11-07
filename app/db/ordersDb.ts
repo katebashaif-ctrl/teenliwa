@@ -567,95 +567,54 @@ export async function updateOrderPaymentInDb(
   },
   d1?: D1DatabaseLike
 ): Promise<boolean> {
-  const idx = memoryOrdersCache.findIndex(
-    (o) =>
-      o.id === orderId ||
-      o.orderNumber === orderId ||
-      (o.ziinaPaymentIntentId && o.ziinaPaymentIntentId === orderId)
-  );
-  if (idx > -1) {
-    memoryOrdersCache[idx].paymentStatus = paymentStatus;
-    if (details?.orderStatus) {
-      memoryOrdersCache[idx].status = details.orderStatus;
-    } else if (paymentStatus === "paid" && memoryOrdersCache[idx].status === "pending") {
-      memoryOrdersCache[idx].status = "processing";
-    }
-    if (details?.ziinaPaymentIntentId) {
-      memoryOrdersCache[idx].ziinaPaymentIntentId = details.ziinaPaymentIntentId;
-    }
-    if (details?.ziinaRedirectUrl) {
-      memoryOrdersCache[idx].ziinaRedirectUrl = details.ziinaRedirectUrl;
-    }
-    if (details?.transactionId) {
-      memoryOrdersCache[idx].transactionId = details.transactionId;
-    }
-    if (details?.cardBrand) {
-      memoryOrdersCache[idx].cardBrand = details.cardBrand;
-    }
-    if (details?.cardLastFour) {
-      memoryOrdersCache[idx].cardLastFour = details.cardLastFour;
-    }
-  }
+  // Never report success for an in-memory-only payment update.
+  if (!d1) return false;
+  try {
+    await initializeD1Schema(d1);
+    const newStatus = details?.orderStatus || (paymentStatus === "paid" ? "processing" : "pending");
+    const result = await d1.prepare(
+      `UPDATE orders SET
+         payment_status = ?,
+         status = ?,
+         ziina_payment_intent_id = COALESCE(?, ziina_payment_intent_id),
+         ziina_redirect_url = COALESCE(?, ziina_redirect_url),
+         transaction_id = COALESCE(?, transaction_id),
+         card_brand = COALESCE(?, card_brand),
+         card_last_four = COALESCE(?, card_last_four),
+         updated_at = ?
+       WHERE id = ? OR tracking_number = ? OR order_number = ? OR ziina_payment_intent_id = ?`
+    ).bind(
+      paymentStatus,
+      newStatus,
+      details?.ziinaPaymentIntentId?.trim() || null,
+      details?.ziinaRedirectUrl?.trim() || null,
+      details?.transactionId?.trim() || null,
+      details?.cardBrand?.trim() || null,
+      details?.cardLastFour?.trim() || null,
+      new Date().toISOString(),
+      orderId, orderId, orderId, orderId
+    ).run();
+    const changes = Number((result as any)?.meta?.changes ?? (result as any)?.meta?.rows_written ?? 0);
+    if (changes < 1) return false;
 
-  if (d1) {
-    try {
-      await initializeD1Schema(d1);
-      const newStatus =
-        details?.orderStatus || (paymentStatus === "paid" ? "processing" : "pending");
-      
-      const cleanIntent = details?.ziinaPaymentIntentId?.trim() || null;
-      const cleanRedirect = details?.ziinaRedirectUrl?.trim() || null;
-      const cleanTx = details?.transactionId?.trim() || null;
-      const cleanBrand = details?.cardBrand?.trim() || null;
-      const cleanLastFour = details?.cardLastFour?.trim() || null;
-
-      try {
-        await d1
-          .prepare(
-            `UPDATE orders 
-             SET payment_status = ?, 
-                 status = ?, 
-                 ziina_payment_intent_id = COALESCE(?, ziina_payment_intent_id),
-                 ziina_redirect_url = COALESCE(?, ziina_redirect_url),
-                 transaction_id = COALESCE(?, transaction_id),
-                 card_brand = COALESCE(?, card_brand),
-                 card_last_four = COALESCE(?, card_last_four),
-                 updated_at = ? 
-             WHERE id = ? OR tracking_number = ? OR order_number = ? OR ziina_payment_intent_id = ?`
-          )
-          .bind(
-            paymentStatus,
-            newStatus,
-            cleanIntent,
-            cleanRedirect,
-            cleanTx,
-            cleanBrand,
-            cleanLastFour,
-            new Date().toISOString(),
-            orderId,
-            orderId,
-            orderId,
-            orderId
-          )
-          .run();
-      } catch (colErr) {
-        // Fallback update without extended columns if schema update failed
-        await d1
-          .prepare(
-            "UPDATE orders SET payment_status = ?, status = ?, updated_at = ? WHERE id = ? OR tracking_number = ? OR order_number = ?"
-          )
-          .bind(paymentStatus, newStatus, new Date().toISOString(), orderId, orderId, orderId)
-          .run();
-      }
-    } catch (e: any) {
-      console.warn("D1 update order payment status error:", e);
+    const idx = memoryOrdersCache.findIndex((order) => order.id === orderId || order.orderNumber === orderId || order.ziinaPaymentIntentId === orderId);
+    if (idx >= 0) {
+      memoryOrdersCache[idx] = {
+        ...memoryOrdersCache[idx],
+        paymentStatus,
+        status: newStatus,
+        ...(details?.ziinaPaymentIntentId ? { ziinaPaymentIntentId: details.ziinaPaymentIntentId } : {}),
+        ...(details?.ziinaRedirectUrl ? { ziinaRedirectUrl: details.ziinaRedirectUrl } : {}),
+        ...(details?.transactionId ? { transactionId: details.transactionId } : {}),
+        ...(details?.cardBrand ? { cardBrand: details.cardBrand } : {}),
+        ...(details?.cardLastFour ? { cardLastFour: details.cardLastFour } : {}),
+      };
     }
+    return true;
+  } catch (error) {
+    console.error("D1 update order payment status error:", error);
+    return false;
   }
-
-  if (idx > -1) {
-    await syncOrderToR2(memoryOrdersCache[idx], memoryOrdersCache);
-  }
-  return true;
 }
 
 /**
