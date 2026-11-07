@@ -39,7 +39,6 @@ export const PaymentCallbackView: React.FC = () => {
 	const [searchParams] = useSearchParams();
 	const statusParam = searchParams.get("status") || "";
 	const orderId = searchParams.get("orderId") || "";
-	const paymentIntentId = searchParams.get("payment_intent_id") || searchParams.get("id") || "";
 	const matchingOrder = orders.find((o) => o.id === orderId || o.orderNumber === orderId);
 
 	const [isLoading, setIsLoading] = useState(true);
@@ -48,13 +47,13 @@ export const PaymentCallbackView: React.FC = () => {
 	useEffect(() => {
 		let isMounted = true;
 		async function verifyPayment() {
-			if (!paymentIntentId || !orderId) {
+			if (!orderId) {
 				setResult({ status: "unverified", isPaid: false });
 				setIsLoading(false);
 				return;
 			}
 			try {
-				const verifyUrl = `/api/ziina/verify?payment_intent_id=${encodeURIComponent(paymentIntentId)}&orderId=${encodeURIComponent(orderId)}`;
+				const verifyUrl = `/api/ziina/verify?orderId=${encodeURIComponent(orderId)}`;
 				const response = await fetch(verifyUrl, { cache: "no-store", credentials: "same-origin" });
 				const data = await response.json() as any;
 				if (!isMounted) return;
@@ -73,7 +72,7 @@ export const PaymentCallbackView: React.FC = () => {
 		}
 		verifyPayment();
 		return () => { isMounted = false; };
-	}, [paymentIntentId, orderId]);
+	}, [orderId]);
 
 	const isSuccess = result?.isPaid === true;
 	const isCancelled = statusParam === "cancelled" && !isSuccess;
