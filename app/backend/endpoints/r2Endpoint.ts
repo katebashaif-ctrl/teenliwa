@@ -71,7 +71,9 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
   const key = url.searchParams.get("key") || url.searchParams.get("file");
   const intent = url.searchParams.get("intent");
   const normalizedImageKey = (key || "").replace(/^\/+/, "");
-  const publicImageKey = Boolean(key && !key.includes("..") && !key.includes("\\") && /^(images|products)\//.test(normalizedImageKey) && /\.(jpg|jpeg|png|webp|gif)$/i.test(normalizedImageKey));
+  const imageSegments = normalizedImageKey.split("/");
+  const safeImageSegments = imageSegments.length >= 2 && imageSegments.every((segment) => segment && segment !== "." && segment !== ".." && !segment.includes("%"));
+  const publicImageKey = Boolean(key && !key.includes("..") && !key.includes("%") && !key.includes("\\") && safeImageSegments && /^(images|products)\//.test(normalizedImageKey) && /\.(jpg|jpeg|png|webp|gif)$/i.test(normalizedImageKey));
   if (!publicImageKey && intent !== "get_catalog") {
     const auth = await verifyAdminAuth(request, context);
     if (!auth.authorized) return Response.json({ success:false, error:auth.reason || "Unauthorized" }, { status:401 });
