@@ -3,7 +3,11 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { INITIAL_META_CAMPAIGNS, INITIAL_META_CONFIG, INITIAL_PRODUCTS } from "../../data/initialData";
 import type { MetaCampaign, MetaMarketingApiConfig } from "../../types/store";
 
-let storedConfig: MetaMarketingApiConfig = { ...INITIAL_META_CONFIG };
+let storedConfig: MetaMarketingApiConfig = { ...INITIAL_META_CONFIG, accessToken: "" };
+function getMetaAccessToken(context?: any): string {
+  const env = (context as any)?.cloudflare?.env || process.env || {};
+  return String(env.META_ACCESS_TOKEN || "").trim();
+}
 let storedCampaigns: MetaCampaign[] = [...INITIAL_META_CAMPAIGNS];
 
 export async function handleMetaCampaignsLoader({ request, context }: LoaderFunctionArgs) {
@@ -12,10 +16,12 @@ export async function handleMetaCampaignsLoader({ request, context }: LoaderFunc
 	const url = new URL(request.url);
 	const actionType = url.searchParams.get("action");
 
-	if (actionType === "verify_token" && storedConfig.accessToken) {
+	const metaAccessToken = getMetaAccessToken(context);
+	if (actionType === "verify_token") {
+		if (!metaAccessToken) return Response.json({ success:false, connected:false, error:"Configure META_ACCESS_TOKEN as a Cloudflare Worker secret." }, { status:503 });
 		try {
 			const res = await fetch(
-				`https://graph.facebook.com/v21.0/me?access_token=${encodeURIComponent(storedConfig.accessToken)}`,
+				`https://graph.facebook.com/v21.0/me?access_token=${encodeURIComponent(metaAccessToken)}`,
 			);
 			const data = (await res.json()) as { id?: string; name?: string; error?: unknown };
 			return Response.json({
@@ -39,7 +45,7 @@ export async function handleMetaCampaignsLoader({ request, context }: LoaderFunc
 
 	return Response.json({
 		success: true,
-		config: storedConfig,
+		config: { ...storedConfig, accessToken: "", isConnected: Boolean(metaAccessToken && storedConfig.adAccountId) },
 		campaigns: storedCampaigns,
 		summary: {
 			totalSpentAED: totalSpent,
@@ -72,15 +78,18 @@ export async function handleMetaCampaignsAction({ request, context }: ActionFunc
 		};
 
 		if (body.intent === "update_config" && body.config) {
+			const { accessToken: _ignoredToken, ...safeConfig } = body.config as any;
+			const metaAccessToken = getMetaAccessToken(context);
 			storedConfig = {
 				...storedConfig,
-				...body.config,
-				isConnected: Boolean(body.config.accessToken && body.config.adAccountId),
+				...safeConfig,
+				accessToken: "",
+				isConnected: Boolean(metaAccessToken && safeConfig.adAccountId),
 			};
 			return Response.json({
 				success: true,
-				message: "Meta Marketing API configuration updated successfully",
-				config: storedConfig,
+				message: "Meta settings saved. Configure META_ACCESS_TOKEN as a Worker secret for API access.",
+				config: { ...storedConfig, accessToken: "" },
 			});
 		}
 
