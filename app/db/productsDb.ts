@@ -1,8 +1,6 @@
 import type { Product } from "../types/store";
 import { AwsClient } from "aws4fetch";
 import { INITIAL_PRODUCTS } from "../data/initialData";
-import fs from "fs";
-import path from "path";
 
 export interface D1DatabaseLike {
   prepare: (query: string) => {
@@ -21,32 +19,15 @@ let memoryProductsCache: Product[] = [...INITIAL_PRODUCTS];
 let isProductSchemaInitialized = false;
 
 function getR2Config() {
-  let diskConfig: Record<string, string> = {};
-  const candidates = [
-    path.resolve(process.cwd(), "app/data/r2-config.json"),
-    "/app/applet/app/data/r2-config.json",
-    path.resolve(process.cwd(), "data/r2-config.json"),
-  ];
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate)) {
-        diskConfig = JSON.parse(fs.readFileSync(candidate, "utf-8"));
-        break;
-      }
-    } catch {}
-  }
-
-  const accountId = diskConfig.accountId || process.env.CLOUDFLARE_ACCOUNT_ID || "";
-  const accessKeyId = diskConfig.accessKeyId || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "";
-  const secretAccessKey = diskConfig.secretAccessKey || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "";
-  const bucket = diskConfig.bucket || process.env.CLOUDFLARE_R2_BUCKET || "";
-  const endpoint =
-    diskConfig.endpoint ||
-    process.env.CLOUDFLARE_R2_ENDPOINT ||
-    (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
+  const env = process.env || {};
+  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const accessKeyId = String(env.CLOUDFLARE_R2_ACCESS_KEY_ID || "").trim();
+  const secretAccessKey = String(env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "").trim();
+  const bucket = String(env.CLOUDFLARE_R2_BUCKET || env.R2_BUCKET || "").trim();
+  const configuredEndpoint = String(env.CLOUDFLARE_R2_ENDPOINT || "").trim();
+  const endpoint = configuredEndpoint.includes("r2.cloudflarestorage.com") ? configuredEndpoint.replace(/\/+$/, "") : (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
   return { accessKeyId, secretAccessKey, bucket, endpoint };
 }
-
 function getR2Client(): { client: AwsClient; bucket: string; endpoint: string } | null {
   const config = getR2Config();
   if (!config.accessKeyId || !config.secretAccessKey || !config.bucket || !config.endpoint) return null;
