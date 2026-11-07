@@ -86,9 +86,9 @@ const SCHEMA_STATEMENTS = [
 
 // R2 Credentials configuration for remote cloud storage backup
 const R2_CONFIG = {
-  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "0b7dc087410628baa1f652ea0fb8bd57",
-  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "6661dcbf8d777bf587cd42d1bcb8b9ca",
-  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "e6f736a24c5624c6e5227c8b6d3a17c86bc9f7578c8a9e7fea39c125aa85723e",
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
+  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "",
+  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "",
   bucket: process.env.CLOUDFLARE_R2_BUCKET || "bt-liwa",
   endpoint:
     process.env.CLOUDFLARE_R2_ENDPOINT && process.env.CLOUDFLARE_R2_ENDPOINT.includes("r2.cloudflarestorage.com")
@@ -150,65 +150,15 @@ export async function initializeD1Schema(db: D1DatabaseLike, force = false): Pro
 }
 
 /**
- * Backup order to Cloudflare R2 Database Storage (data/orders.json and orders/{id}.json)
+ * Customer orders stay in the private D1 database. Do not mirror PII into the
+ * storefront's public/product-image R2 bucket.
  */
-async function syncOrderToR2(order: Order, allOrders?: Order[]): Promise<boolean> {
-  const r2 = getR2Client();
-  if (!r2) return false;
-
-  try {
-    const singleOrderUrl = `${R2_CONFIG.endpoint}/${R2_CONFIG.bucket}/orders/${order.id}.json`;
-    await r2.fetch(singleOrderUrl, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
-      body: JSON.stringify(order, null, 2),
-    });
-
-    if (allOrders && allOrders.length > 0) {
-      const allOrdersUrl = `${R2_CONFIG.endpoint}/${R2_CONFIG.bucket}/data/orders.json`;
-      await r2.fetch(allOrdersUrl, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
-        body: JSON.stringify(
-          {
-            lastUpdated: new Date().toISOString(),
-            totalOrders: allOrders.length,
-            orders: allOrders,
-          },
-          null,
-          2
-        ),
-      });
-    }
-    return true;
-  } catch (err) {
-    console.warn("Could not sync order to R2 bucket:", err);
-    return false;
-  }
+async function syncOrderToR2(_order: Order, _allOrders?: Order[]): Promise<boolean> {
+  return false;
 }
-
-/**
- * Fetch orders from Cloudflare R2 Database Storage
- */
 async function fetchOrdersFromR2(): Promise<Order[] | null> {
-  const r2 = getR2Client();
-  if (!r2) return null;
-
-  try {
-    const url = `${R2_CONFIG.endpoint}/${R2_CONFIG.bucket}/data/orders.json`;
-    const res = await r2.fetch(url);
-    if (res.ok) {
-      const data = (await res.json()) as { orders?: Order[] };
-      if (data && Array.isArray(data.orders)) {
-        return data.orders;
-      }
-    }
-  } catch (err) {
-    console.warn("Could not load orders from R2:", err);
-  }
   return null;
 }
-
 /**
  * Map D1 SQL row to application Order type.
  * Works seamlessly with both legacy teenliwa-db schema and new extended schema.
@@ -336,11 +286,6 @@ export async function getOrdersFromDb(d1?: D1DatabaseLike): Promise<{
       }
 
       if (Array.isArray(results)) {
-        if (results.length === 0 && INITIAL_ORDERS.length > 0) {
-          await seedInitialOrdersToD1(d1);
-          const afterSeed = await d1.prepare("SELECT * FROM orders ORDER BY created_at DESC").bind().all<any>();
-          results = afterSeed?.results || [];
-        }
 
         const d1Orders = results.map(mapD1RowToOrder);
         memoryOrdersCache = d1Orders;
@@ -352,20 +297,14 @@ export async function getOrdersFromDb(d1?: D1DatabaseLike): Promise<{
     }
   }
 
-  // Fallback to R2 or memory
-  if (!isInitialized || memoryOrdersCache.length === 0) {
-    const r2Orders = await fetchOrdersFromR2();
-    if (r2Orders && r2Orders.length > 0) {
-      memoryOrdersCache = r2Orders;
-    } else if (memoryOrdersCache.length === 0) {
-      memoryOrdersCache = [...INITIAL_ORDERS];
-    }
+  // D1 is the only durable source of private order records. Never return seeded demo data.
+  if (!isInitialized) {
+    memoryOrdersCache = [];
     isInitialized = true;
   }
-
   return {
     orders: memoryOrdersCache,
-    storageType: getR2Client() ? "r2_database" : "server_persistent_cache",
+    storageType: "server_persistent_cache",
   };
 }
 
