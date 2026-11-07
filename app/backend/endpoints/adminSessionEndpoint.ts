@@ -19,16 +19,15 @@ export async function handleAdminSessionLoader({request,context}:LoaderFunctionA
 }
 export async function handleAdminSessionAction({request,context}:ActionFunctionArgs) {
   if (!validOrigin(request)) return Response.json({success:false,error:"Invalid request origin"},{status:403});
-  const secure=new URL(request.url).protocol==="https:";
   if (request.method.toUpperCase()==="DELETE") {
     return new Response(JSON.stringify({success:true}),{status:200,headers:{"Content-Type":"application/json","Cache-Control":"no-store","Set-Cookie":clearAdminSessionCookie(request)}});
   }
   if (request.method.toUpperCase()!=="POST") return Response.json({success:false,error:"Method not allowed"},{status:405,headers:{Allow:"POST, DELETE"}});
   const env=envOf(context);
-  const expectedUser=String(env.ADMIN_USERNAME || "admin");
+  const expectedUser=String(env.ADMIN_USERNAME || "").trim();
   const expectedPass=String(env.ADMIN_PASSWORD || "");
-  if (expectedPass.length < 16 || String(env.ADMIN_SESSION_SECRET || "").length < 32) {
-    return Response.json({success:false,error:"Admin secrets are not configured. Set ADMIN_PASSWORD (16+ characters) and ADMIN_SESSION_SECRET (32+ characters)."},{status:503});
+  if (expectedUser.length < 3 || expectedPass.length < 16 || String(env.ADMIN_SESSION_SECRET || "").length < 32) {
+    return Response.json({success:false,error:"Admin secrets are not configured. Set ADMIN_USERNAME, ADMIN_PASSWORD (16+ characters), and ADMIN_SESSION_SECRET (32+ characters)."},{status:503});
   }
   let body:any;
   try { body=await request.json(); } catch { return Response.json({success:false,error:"Invalid JSON"},{status:400}); }
