@@ -105,8 +105,8 @@ export const CMSDashboard: React.FC = () => {
 	});
 	const [r2ConfigForm, setR2ConfigForm] = useState({
 		accountId: "0b7dc087410628baa1f652ea0fb8bd57",
-		accessKeyId: "6661dcbf8d777bf587cd42d1bcb8b9ca",
-		secretAccessKey: "e6f736a24c5624c6e5227c8b6d3a17c86bc9f7578c8a9e7fea39c125aa85723e",
+		accessKeyId: "",
+		secretAccessKey: "",
 		bucket: "bt-liwa",
 		publicUrl: "https://r2.teenliwa.com/products",
 		endpoint: "https://0b7dc087410628baa1f652ea0fb8bd57.r2.cloudflarestorage.com",
@@ -183,29 +183,7 @@ export const CMSDashboard: React.FC = () => {
 	// Handle R2 Credentials Save & Live Test
 	const handleSaveR2Config = async (e: React.FormEvent) => {
 		e.preventDefault();
-		setIsSavingR2Config(true);
-		try {
-			const res = await fetch("/api/r2", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					intent: "save_r2_config",
-					config: r2ConfigForm,
-				}),
-			});
-			const data = (await res.json()) as any;
-			if (data.success && data.connected) {
-				showToast("اتصال ناجح بـ R2", "تم التحقق من مفاتيح S3 والاتصال بسحابة Cloudflare R2 بنجاح!");
-				loadR2Status();
-				fetchCatalogFromR2();
-			} else {
-				showToast("تنبيه اتصال R2", data.error || "تعذر الاتصال بـ R2، يرجى مراجعة المفاتيح.", "warning");
-			}
-		} catch (err) {
-			showToast("خطأ بالاتصال", "فشل إرسال طلب إعدادات R2 إلى الخادم.", "warning");
-		} finally {
-			setIsSavingR2Config(false);
-		}
+		showToast("إعدادات R2", "لأمان مفاتيح التخزين، أضف CLOUDFLARE_R2_ACCESS_KEY_ID وCLOUDFLARE_R2_SECRET_ACCESS_KEY كـ Worker secrets من Cloudflare Dashboard. لا تحفظ المفاتيح من المتصفح.", "warning");
 	};
 
 	// Handle R2 Catalog Sync
