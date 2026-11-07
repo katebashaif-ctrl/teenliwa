@@ -158,6 +158,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
       { status: 401 }
     );
   }
+  if (!d1) return Response.json({ success:false, error:"Order database is unavailable" }, { status:503 });
 
   if (intent === "update_payment") {
     const { orderId, paymentStatus, ziinaPaymentIntentId, ziinaRedirectUrl, transactionId, cardBrand, cardLastFour, orderStatus } = body;
