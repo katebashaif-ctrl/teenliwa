@@ -31,7 +31,9 @@ export async function handleOrdersLoader({ request, context }: LoaderFunctionArg
   const searchQuery = url.searchParams.get("q")?.toLowerCase();
 
   try {
+    if (!d1) return Response.json({ success:false, error:"Order database is unavailable" }, { status:503, headers:{ "Cache-Control":"no-store" } });
     const { orders, storageType } = await getOrdersFromDb(d1);
+    if (storageType !== "d1_database") return Response.json({ success:false, error:"Order database is temporarily unavailable" }, { status:503, headers:{ "Cache-Control":"no-store" } });
 
     let filtered = orders;
     if (statusFilter && statusFilter !== "all") {
@@ -54,7 +56,7 @@ export async function handleOrdersLoader({ request, context }: LoaderFunctionArg
       totalRevenue: filtered.reduce((sum, o) => sum + (o.status !== "cancelled" ? o.total : 0), 0),
       storageType,
       orders: filtered,
-    });
+    }, { headers:{ "Cache-Control":"no-store, no-cache, must-revalidate", Pragma:"no-cache" } });
   } catch (error) {
     console.error("Error fetching orders from database:", error);
     return Response.json(
