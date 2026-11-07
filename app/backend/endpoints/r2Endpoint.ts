@@ -46,8 +46,6 @@ function getMimeType(filename: string): string {
       return "image/png";
     case "webp":
       return "image/webp";
-    case "svg":
-      return "image/svg+xml";
     case "gif":
       return "image/gif";
     case "json":
@@ -251,7 +249,7 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
       return Response.json({
         success: true,
         r2Synced: true,
-        localSynced: true,
+        localSynced: false,
         latencyMs,
         message: "Catalog synced successfully to Cloudflare R2 (data/store.json)",
       });
