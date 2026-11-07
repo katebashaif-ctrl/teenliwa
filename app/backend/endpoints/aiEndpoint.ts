@@ -1,3 +1,4 @@
+import { verifyAdminAuth } from "../../utils/adminAuth";
 import type { ActionFunctionArgs } from "react-router";
 import { GoogleGenAI, Type, type FunctionDeclaration } from "@google/genai";
 import {
@@ -177,6 +178,8 @@ const getStoreMetricsTool: FunctionDeclaration = {
 };
 
 export async function handleAiAgentAction({ request, context }: ActionFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401 });
   const d1 = (context as any)?.cloudflare?.env?.DB;
 
   try {
@@ -509,7 +512,9 @@ export async function handleAiAgentAction({ request, context }: ActionFunctionAr
   }
 }
 
-export async function handleAiMarketingAction({ request }: ActionFunctionArgs) {
+export async function handleAiMarketingAction({ request, context }: ActionFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401 });
   try {
     const body = (await request.json()) as {
       action: "generate_ad_copy" | "analyze_lead" | "generate_whatsapp_reply" | "suggest_strategy";
