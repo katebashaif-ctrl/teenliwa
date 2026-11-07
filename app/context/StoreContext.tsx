@@ -178,16 +178,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		if (typeof window !== "undefined") {
 			try {
 				const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-				const ziinaToken = localStorage.getItem("teen_liwa_ziina_token");
 				if (saved) {
 					const parsed = JSON.parse(saved);
-					if (ziinaToken && !parsed.ziinaApiKey) {
-						parsed.ziinaApiKey = ziinaToken;
-					}
-					return { ...INITIAL_SETTINGS, ...parsed };
-				}
-				if (ziinaToken) {
-					return { ...INITIAL_SETTINGS, ziinaApiKey: ziinaToken };
+					delete parsed.ziinaApiKey;
+					return { ...INITIAL_SETTINGS, ...parsed, ziinaApiKey: "" };
 				}
 			} catch (e) {}
 		}
@@ -337,15 +331,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				if (json.data.settings) {
 					setSettings((prev) => {
 						const remote = json.data.settings;
-						const merged = { ...prev, ...remote };
-						// Protect user's Ziina credentials from being overwritten by blank remote settings!
-						if (prev.ziinaApiKey && (!remote.ziinaApiKey || remote.ziinaApiKey.trim() === "")) {
-							merged.ziinaApiKey = prev.ziinaApiKey;
-						}
-						const savedToken = typeof window !== "undefined" ? localStorage.getItem("teen_liwa_ziina_token") : null;
-						if (savedToken && (!merged.ziinaApiKey || merged.ziinaApiKey.trim() === "")) {
-							merged.ziinaApiKey = savedToken;
-						}
+						const merged = { ...prev, ...remote, ziinaApiKey: "" };
 						return merged;
 					});
 				}
@@ -1175,19 +1161,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	// Settings & Reset
 	const updateSettings = (newSettings: Partial<StoreSettings>) => {
 		setSettings((prev) => {
-			const updated = { ...prev, ...newSettings };
+			const safeNewSettings = { ...newSettings } as Partial<StoreSettings>;
+			delete (safeNewSettings as any).ziinaApiKey;
+			const updated = { ...prev, ...safeNewSettings, ziinaApiKey: "" };
 			if (typeof window !== "undefined") {
 				try {
-					localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
-					if (updated.ziinaApiKey) {
-						localStorage.setItem("teen_liwa_ziina_token", updated.ziinaApiKey);
-					}
-					if (updated.ziinaTestMode !== undefined) {
-						localStorage.setItem("teen_liwa_ziina_test_mode", String(updated.ziinaTestMode));
-					}
+					const persisted = { ...updated } as any;
+					delete persisted.ziinaApiKey;
+					localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(persisted));
+					localStorage.removeItem("teen_liwa_ziina_token");
+					localStorage.removeItem("teen_liwa_ziina_test_mode");
 				} catch (e) {}
 			}
-			// Synchronize to Cloudflare R2 and local disk store.json immediately
+			// Persist catalog settings through the configured server-side storage binding.
 			syncCatalogToR2(products, updated);
 			return updated;
 		});
