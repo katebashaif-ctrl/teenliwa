@@ -70,6 +70,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
   if (intent === "clear_all_products") {
     try {
       const result = await clearAllProductsInDb(d1);
+      if (!result.dbSaved) return Response.json({ success:false, error:"Product catalog could not be cleared in D1" }, { status:503, headers:NO_STORE_HEADERS });
       return Response.json({ success: true, message: "All products cleared successfully", ...result }, { headers: NO_STORE_HEADERS });
     } catch (error) {
       return Response.json(
@@ -86,6 +87,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
     }
     try {
       const result = await createProductInDb(product, d1);
+      if (!result.dbSaved) return Response.json({ success:false, error:"Product could not be saved to D1" }, { status:503, headers:NO_STORE_HEADERS });
       return Response.json(
         { success: true, message: "Product created successfully", product: result.product, dbSaved: result.dbSaved, r2Synced: result.r2Synced },
         { headers: NO_STORE_HEADERS },
@@ -106,6 +108,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
     }
     try {
       const result = await updateProductInDb(id, updates, d1);
+      if (!result.dbSaved) return Response.json({ success:false, error:"Product changes could not be saved to D1" }, { status:503, headers:NO_STORE_HEADERS });
       if (!result.product) {
         return Response.json({ success: false, error: "Product not found" }, { status: 404, headers: NO_STORE_HEADERS });
       }
@@ -126,6 +129,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
     if (!id) return Response.json({ success: false, error: "Product id required" }, { status: 400 });
     try {
       const result = await deleteProductFromDb(id, d1);
+      if (!result.dbSaved) return Response.json({ success:false, error:"Product could not be deleted from D1" }, { status:503, headers:NO_STORE_HEADERS });
       return Response.json({ success: true, message: "Product deleted successfully", ...result }, { headers: NO_STORE_HEADERS });
     } catch (error) {
       return Response.json(
