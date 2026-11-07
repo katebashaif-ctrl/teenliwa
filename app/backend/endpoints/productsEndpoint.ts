@@ -1,4 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { verifyAdminAuth } from "../../utils/adminAuth";
 import {
   getProductsFromDb,
   createProductInDb,
@@ -52,6 +53,8 @@ export async function handleProductsLoader({ request, context }: LoaderFunctionA
 }
 
 export async function handleProductsAction({ request, context }: ActionFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success: false, error: auth.reason || "Unauthorized" }, { status: 401, headers: NO_STORE_HEADERS });
   const d1 = (context as any)?.cloudflare?.env?.DB;
   let body: any;
   try {
