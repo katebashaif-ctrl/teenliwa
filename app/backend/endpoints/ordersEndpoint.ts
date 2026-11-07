@@ -165,6 +165,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     if (!orderId) {
       return Response.json({ success: false, error: "orderId required" }, { status: 400 });
     }
+    if (!["paid", "failed", "pending", "cancelled"].includes(paymentStatus || "pending")) return Response.json({ success:false, error:"Invalid payment status" }, { status:400 });
 
     try {
       const saved = await updateOrderPaymentInDb(
@@ -203,9 +204,11 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     if (!orderId || !status) {
       return Response.json({ success: false, error: "orderId and status required" }, { status: 400 });
     }
+    if (!["pending", "processing", "shipped", "delivered", "cancelled"].includes(status)) return Response.json({ success:false, error:"Invalid order status" }, { status:400 });
 
     try {
       const updated = await updateOrderStatusInDb(orderId, status, d1);
+      if (!updated) return Response.json({ success:false, error:"Order status was not saved" }, { status:503 });
       return Response.json({
         success: true,
         message: `Order status updated to: ${status}`,
@@ -230,7 +233,8 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     }
 
     try {
-      await deleteOrderFromDb(orderId, d1);
+      const deleted = await deleteOrderFromDb(orderId, d1);
+      if (!deleted) return Response.json({ success:false, error:"Order could not be deleted from D1" }, { status:503 });
       return Response.json({
         success: true,
         message: "Order deleted successfully",
