@@ -13,6 +13,17 @@ const ai = new GoogleGenAI({
 });
 
 const META_MCP_ENDPOINT = "https://mcp.facebook.com/ads";
+function validatePublicMcpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) return null;
+    if (!hostname.includes(".") || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".test") || hostname.endsWith(".invalid") || hostname.endsWith(".example")) return null;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.startsWith("[") || hostname.includes(":")) return null;
+    return url.toString();
+  } catch { return null; }
+}
+
 
 export async function handleMcpLoader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
@@ -302,7 +313,8 @@ export async function handleMcpAction({ request, context }: ActionFunctionArgs) 
     }
 
     if (body.action === "proxy_live_mcp") {
-      const targetUrl = (body.url || "https://mcp.teenliwa.com/mcp").trim();
+      const targetUrl = validatePublicMcpUrl(String(body.url || "https://mcp.teenliwa.com/mcp").trim());
+      if (!targetUrl) return Response.json({ success:false, error:"Only public HTTPS MCP hostnames are allowed" }, { status:400 });
       const token = body.accessToken || "";
       const customHeaders = body.headers || {};
       const method = body.method || "tools/list";
@@ -328,6 +340,8 @@ export async function handleMcpAction({ request, context }: ActionFunctionArgs) 
       try {
         const mcpRes = await fetch(targetUrl, {
           method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(10000),
           headers: mcpHeaders,
           body: JSON.stringify({
             jsonrpc: "2.0",
@@ -363,7 +377,8 @@ export async function handleMcpAction({ request, context }: ActionFunctionArgs) 
     }
 
     if (body.action === "test_custom_mcp") {
-      const targetUrl = (body.url || "https://mcp.teenliwa.com/mcp").trim();
+      const targetUrl = validatePublicMcpUrl(String(body.url || "https://mcp.teenliwa.com/mcp").trim());
+      if (!targetUrl) return Response.json({ success:false, error:"Only public HTTPS MCP hostnames are allowed" }, { status:400 });
       const headers = body.headers || {};
       const startTime = Date.now();
 
@@ -381,6 +396,8 @@ export async function handleMcpAction({ request, context }: ActionFunctionArgs) 
       try {
         const probeRes = await fetch(targetUrl, {
           method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(10000),
           headers: reqHeaders,
           body: JSON.stringify({
             jsonrpc: "2.0",
