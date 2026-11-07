@@ -30,7 +30,6 @@ export const CartDrawer: React.FC = () => {
 		setIsCartOpen,
 		settings,
 		addOrder,
-		updateOrderPaymentDetails,
 		setLastOrder,
 		showToast,
 	} = useStore();
@@ -125,17 +124,8 @@ export const CartDrawer: React.FC = () => {
 			const timer1 = setTimeout(() => setRedirectProgress(65), 350);
 			const timer2 = setTimeout(() => setRedirectProgress(90), 850);
 			try {
-				const finalOrderId = newOrder.id || (newOrder as any).order?.id || `ord-${Date.now().toString(36)}`;
-				const finalOrderNumber = newOrder.orderNumber || (newOrder as any).order?.orderNumber || `AED-${Math.floor(1000 + Math.random() * 9000)}`;
-
-				const effectiveToken =
-					(settings.ziinaApiKey || "").trim() ||
-					(typeof window !== "undefined" ? (localStorage.getItem("teen_liwa_ziina_token") || "").trim() : "");
-
-				const effectiveTestMode =
-					settings.ziinaTestMode !== undefined
-						? settings.ziinaTestMode
-						: (typeof window !== "undefined" ? localStorage.getItem("teen_liwa_ziina_test_mode") !== "false" : true);
+				const finalOrderId = newOrder.id || (newOrder as any).order?.id;
+				if (!finalOrderId) throw new Error("Saved order ID is missing");
 
 				const ziinaRes = await fetch("/api/ziina/create-intent", {
 					method: "POST",
@@ -147,8 +137,6 @@ export const CartDrawer: React.FC = () => {
 						currency: "AED",
 						customerName,
 						customerPhone,
-						apiToken: effectiveToken || undefined,
-						testMode: effectiveTestMode,
 					}),
 				});
 
@@ -165,23 +153,12 @@ export const CartDrawer: React.FC = () => {
 							const u = new URL(targetUrl);
 							targetUrl = `${u.pathname}${u.search}`;
 						} catch {
-							targetUrl = `/payment/callback?status=success&orderId=${encodeURIComponent(finalOrderId)}&simulated=true`;
+							throw new Error("Ziina returned an invalid redirect URL");
 						}
 					}
 
-					// Persist payment intent ID and redirect URL to the order in state and database
-					if (ziinaData.payment_intent?.id) {
-						updateOrderPaymentDetails(finalOrderId, {
-							ziinaPaymentIntentId: ziinaData.payment_intent.id,
-							ziinaRedirectUrl: targetUrl,
-							paymentStatus: "pending",
-						});
-					}
 
-					// Clear cart now that payment intent is ready and verified
-					clearCart();
-
-					// If internal relative URL (e.g. simulated payment):
+					// Internal relative URL (if provided by the configured gateway):
 					if (targetUrl.startsWith("/")) {
 						setIsCartOpen(false);
 						window.location.href = targetUrl;
