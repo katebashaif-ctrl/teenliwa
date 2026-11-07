@@ -520,35 +520,22 @@ export async function updateOrderStatusInDb(
   status: Order["status"],
   d1?: D1DatabaseLike
 ): Promise<boolean> {
-  const idx = memoryOrdersCache.findIndex((o) => o.id === orderId);
-  if (idx > -1) {
-    memoryOrdersCache[idx].status = status;
+  if (!d1) return false;
+  try {
+    await initializeD1Schema(d1);
+    const existing = await d1.prepare("SELECT id FROM orders WHERE id = ? OR tracking_number = ? OR order_number = ?").bind(orderId, orderId, orderId).first<any>();
+    if (!existing) return false;
+    const result = await d1.prepare("UPDATE orders SET status = ?, updated_at = ? WHERE id = ? OR tracking_number = ? OR order_number = ?")
+      .bind(status, new Date().toISOString(), orderId, orderId, orderId).run();
+    const changes = Number((result as any)?.meta?.changes ?? (result as any)?.meta?.rows_written ?? 0);
+    if (changes < 1) return false;
+    const idx = memoryOrdersCache.findIndex((order) => order.id === orderId || order.orderNumber === orderId);
+    if (idx >= 0) memoryOrdersCache[idx] = { ...memoryOrdersCache[idx], status };
+    return true;
+  } catch (error) {
+    console.error("D1 update order status error:", error);
+    return false;
   }
-
-  if (d1) {
-    try {
-      await initializeD1Schema(d1);
-      await d1
-        .prepare("UPDATE orders SET status = ? WHERE id = ? OR tracking_number = ? OR order_number = ?")
-        .bind(status, orderId, orderId, orderId)
-        .run();
-    } catch (e: any) {
-      if (String(e).includes("no such table")) {
-        await initializeD1Schema(d1, true);
-        await d1
-          .prepare("UPDATE orders SET status = ? WHERE id = ? OR tracking_number = ? OR order_number = ?")
-          .bind(status, orderId, orderId, orderId)
-          .run();
-      } else {
-        console.warn("D1 update order status error:", e);
-      }
-    }
-  }
-
-  if (idx > -1) {
-    await syncOrderToR2(memoryOrdersCache[idx], memoryOrdersCache);
-  }
-  return true;
 }
 
 /**
