@@ -17,8 +17,11 @@ function validatePublicMcpUrl(value: string): string | null {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase();
+    const env = process.env || {};
+    const configuredHosts = String(env.MCP_ALLOWED_HOSTS || "mcp.teenliwa.com,mcp.facebook.com").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+    const allowedHosts = new Set(configuredHosts);
     if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) return null;
-    if (!hostname.includes(".") || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".test") || hostname.endsWith(".invalid") || hostname.endsWith(".example")) return null;
+    if (!allowedHosts.has(hostname)) return null;
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.startsWith("[") || hostname.includes(":")) return null;
     return url.toString();
   } catch { return null; }
