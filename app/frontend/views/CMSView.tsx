@@ -13,13 +13,7 @@ export const CMSView: React.FC = () => {
 		setCurrentView,
 	} = useStore();
 
-	const isAuthEffective =
-		isAdminAuthenticated ||
-		(typeof window !== "undefined" &&
-			(localStorage.getItem("teen_liwa_admin_auth_v2") === "true" ||
-				localStorage.getItem("teen_liwa_admin_auth") === "true" ||
-				document.cookie.includes("khayrat_admin_auth=") ||
-				document.cookie.includes("teen_liwa_admin_auth=true")));
+	const isAuthEffective = isAdminAuthenticated;
 
 	if (!isAuthEffective) {
 		return (
@@ -40,7 +34,7 @@ export const CMSView: React.FC = () => {
 								onClick={() => setIsAdminLoginModalOpen(true)}
 								className="px-6 py-3 bg-[#2C2014] text-amber-200 font-bold rounded-xl text-xs hover:bg-black transition-colors"
 							>
-								{t("admin.loginButton")} (admin / admin)
+								{t("admin.loginButton")}
 							</button>
 							<button
 								onClick={() => setCurrentView("store")}
