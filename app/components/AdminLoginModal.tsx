@@ -16,10 +16,10 @@ export const AdminLoginModal: React.FC = () => {
 
 	if (!isAdminLoginModalOpen) return null;
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setError("");
-		const success = adminLogin(username, password);
+		const success = await adminLogin(username, password);
 		if (!success) {
 			setError(t("admin.credentialsHint"));
 		} else {
