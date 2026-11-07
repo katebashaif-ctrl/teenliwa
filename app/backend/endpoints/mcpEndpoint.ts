@@ -1,3 +1,4 @@
+import { verifyAdminAuth } from "../../utils/adminAuth";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { GoogleGenAI } from "@google/genai";
 import aiStrings from "../../frontend/locales/aiStrings.json";
@@ -125,7 +126,9 @@ export async function handleMcpLoader({ request }: LoaderFunctionArgs) {
   });
 }
 
-export async function handleMcpAction({ request }: ActionFunctionArgs) {
+export async function handleMcpAction({ request, context }: ActionFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ jsonrpc:"2.0", id:null, error:{code:-32001,message:"Unauthorized"} }, { status:401 });
   try {
     const rawText = await request.text();
     let body: any = {};
