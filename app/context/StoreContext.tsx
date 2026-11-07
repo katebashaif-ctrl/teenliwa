@@ -20,11 +20,7 @@ import {
 	INITIAL_META_CONFIG,
 	DEFAULT_MCP_CONFIG,
 } from "../data/initialData";
-import {
-	ADMIN_AUTH_TOKEN,
-	ADMIN_COOKIE_NAME,
-	getAdminRequestHeaders,
-} from "../utils/adminAuth";
+import { getAdminRequestHeaders } from "../utils/adminAuth";
 import { t } from "../frontend/locales/i18n";
 
 interface ToastNotification {
@@ -108,7 +104,7 @@ interface StoreContextType {
 
 	// Admin Authentication (admin / admin)
 	isAdminAuthenticated: boolean;
-	adminLogin: (username: string, pass: string) => boolean;
+	adminLogin: (username: string, pass: string) => Promise<boolean>;
 	adminLogout: () => void;
 	isAdminLoginModalOpen: boolean;
 	setIsAdminLoginModalOpen: (open: boolean) => void;
@@ -209,27 +205,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	const [toasts, setToasts] = useState<ToastNotification[]>([]);
 	const [isClient, setIsClient] = useState(false);
 
-	// Admin Auth state - synchronously checks localStorage and browser cookies to prevent session loss on refresh
-	const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-		if (typeof window !== "undefined") {
-			try {
-				const saved =
-					localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH) ||
-					localStorage.getItem("teen_liwa_admin_auth");
-				if (saved === "true") return true;
-
-				const cookieStr = document.cookie || "";
-				if (
-					cookieStr.includes(`${ADMIN_COOKIE_NAME}=`) ||
-					cookieStr.includes("teen_liwa_admin_auth=true") ||
-					cookieStr.includes("admin_auth=true")
-				) {
-					return true;
-				}
-			} catch (e) {}
-		}
-		return false;
-	});
+	const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 	const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
 	// Cookie Consent & Legal Modals - synchronously checks localStorage & cookies
@@ -421,17 +397,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		return false;
 	};
 
-	// Helper to set cookie with standard browser-compliant attributes
-	const writeAdminCookie = () => {
-		if (typeof document !== "undefined") {
-			try {
-				const isSecure = window.location.protocol === "https:";
-				const secureFlag = isSecure ? "; Secure" : "";
-				document.cookie = `${ADMIN_COOKIE_NAME}=${ADMIN_AUTH_TOKEN}; path=/; max-age=2592000; SameSite=Lax${secureFlag}`;
-				document.cookie = `teen_liwa_admin_auth=true; path=/; max-age=2592000; SameSite=Lax${secureFlag}`;
-			} catch (e) {}
-		}
-	};
 
 	// Load from localStorage on client mount, then load live from R2
 	useEffect(() => {
@@ -463,12 +428,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			const savedCart = localStorage.getItem(STORAGE_KEYS.CART);
 			if (savedCart) setCart(JSON.parse(savedCart));
 
-			const savedAuth = localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
-			if (savedAuth === "true") {
-				setIsAdminAuthenticated(true);
-				writeAdminCookie();
-				fetchOrdersFromDatabase();
-			}
 
 			const savedConsent = localStorage.getItem(STORAGE_KEYS.COOKIE_CONSENT);
 			if (savedConsent) setCookieConsentState(savedConsent as CookieConsentStatus);
@@ -491,6 +450,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		} catch (e) {
 			console.error("Error reading localStorage:", e);
 		}
+
+		fetch("/api/admin/session", { credentials: "same-origin" })
+			.then((res) => res.ok ? res.json() : { authenticated: false })
+			.then((data) => {
+				const authenticated = data.authenticated === true;
+				setIsAdminAuthenticated(authenticated);
+				if (authenticated) fetchOrdersFromDatabase();
+			})
+			.catch(() => setIsAdminAuthenticated(false));
 
 		// Prefer the server-backed product list over static R2 merge.
 		refreshProductsFromServer();
@@ -587,44 +555,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		setToasts((prev) => prev.filter((t) => t.id !== id));
 	};
 
-	// Admin Authentication
-	const adminLogin = (username: string, pass: string): boolean => {
-		if (username.trim() === "admin" && pass.trim() === "admin") {
+	// Credentials are verified only by the server; the session cookie is HttpOnly.
+	const adminLogin = async (username: string, pass: string): Promise<boolean> => {
+		try {
+			const response = await fetch("/api/admin/session", {
+				method: "POST",
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ username, password: pass }),
+			});
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) return false;
 			setIsAdminAuthenticated(true);
-			writeAdminCookie();
-			if (isClient) {
-				localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, "true");
-			}
 			setIsAdminLoginModalOpen(false);
 			setCurrentView("cms");
 			showToast(t("toasts.welcomeAdmin"), t("toasts.welcomeAdminMsg"));
-			setTimeout(() => {
-				fetchOrdersFromDatabase();
-				refreshProductsFromServer();
-			}, 100);
+			await fetchOrdersFromDatabase();
+			await refreshProductsFromServer();
 			return true;
-		}
-		return false;
+		} catch { return false; }
 	};
 
-	const adminLogout = () => {
+	const adminLogout = async () => {
+		try { await fetch("/api/admin/session", { method: "DELETE", credentials: "same-origin" }); } catch {}
 		setIsAdminAuthenticated(false);
-		if (typeof document !== "undefined") {
-			try {
-				const isSecure = window.location.protocol === "https:";
-				const secureFlag = isSecure ? "; Secure" : "";
-				document.cookie = `${ADMIN_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax${secureFlag}`;
-				document.cookie = `teen_liwa_admin_auth=; path=/; max-age=0; SameSite=Lax${secureFlag}`;
-			} catch (e) {}
-		}
-		if (isClient) {
-			localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
-			localStorage.removeItem("teen_liwa_admin_auth");
-		}
+		setOrders([]);
 		setCurrentView("store");
 		showToast(t("toasts.logout"), t("toasts.logoutMsg"), "info");
 	};
-
 	const openCmsProtected = () => {
 		if (isAdminAuthenticated) {
 			setCurrentView("cms");
