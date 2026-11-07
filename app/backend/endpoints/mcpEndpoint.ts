@@ -25,7 +25,9 @@ function validatePublicMcpUrl(value: string): string | null {
 }
 
 
-export async function handleMcpLoader({ request }: LoaderFunctionArgs) {
+export async function handleMcpLoader({ request, context }: LoaderFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401, headers: { "Cache-Control":"no-store" } });
   const url = new URL(request.url);
   const actionType = url.searchParams.get("action");
 
