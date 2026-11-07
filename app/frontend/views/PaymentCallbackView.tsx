@@ -35,13 +35,11 @@ interface VerificationResult {
 }
 
 export const PaymentCallbackView: React.FC = () => {
-	const { orders, clearCart, updateOrderPaymentDetails } = useStore();
+	const { orders, clearCart } = useStore();
 	const [searchParams] = useSearchParams();
-	const statusParam = searchParams.get("status") || "success";
+	const statusParam = searchParams.get("status") || "";
 	const orderId = searchParams.get("orderId") || "";
 	const paymentIntentId = searchParams.get("payment_intent_id") || searchParams.get("id") || "";
-	const isSimulated = searchParams.get("simulated") === "true";
-
 	const matchingOrder = orders.find((o) => o.id === orderId || o.orderNumber === orderId);
 
 	const [isLoading, setIsLoading] = useState(true);
@@ -49,84 +47,36 @@ export const PaymentCallbackView: React.FC = () => {
 
 	useEffect(() => {
 		let isMounted = true;
-
 		async function verifyPayment() {
-			if (!paymentIntentId && !orderId) {
+			if (!paymentIntentId || !orderId) {
+				setResult({ status: "unverified", isPaid: false });
 				setIsLoading(false);
 				return;
 			}
-
 			try {
-				const verifyUrl = `/api/ziina/verify?payment_intent_id=${encodeURIComponent(
-					paymentIntentId,
-				)}&orderId=${encodeURIComponent(orderId)}${isSimulated ? "&simulated=true" : ""}&status=${encodeURIComponent(
-					statusParam,
-				)}`;
-				const res = await fetch(verifyUrl);
-				const data = (await res.json()) as any;
-				if (isMounted) {
-					if (data.success) {
-						setResult(data);
-						if (data.isPaid) clearCart();
-						const targetId = orderId || paymentIntentId;
-						if (targetId) {
-							updateOrderPaymentDetails(targetId, {
-								paymentStatus: data.isPaid ? "paid" : "failed",
-								status: data.isPaid ? "processing" : "pending",
-								ziinaPaymentIntentId: paymentIntentId || data.intent?.id,
-								cardBrand: data.intent?.card_details?.card_brand,
-								cardLastFour: data.intent?.card_details?.card_last_four,
-							});
-						}
-					} else {
-						const isSuccessFallback = statusParam === "success";
-						setResult({
-							status: isSuccessFallback ? "completed" : "failed",
-							isPaid: isSuccessFallback,
-						});
-						if (isSuccessFallback) clearCart();
-						const targetId = orderId || paymentIntentId;
-						if (targetId) {
-							updateOrderPaymentDetails(targetId, {
-								paymentStatus: isSuccessFallback ? "paid" : "failed",
-								status: isSuccessFallback ? "processing" : "pending",
-								ziinaPaymentIntentId: paymentIntentId,
-							});
-						}
-					}
-					setIsLoading(false);
+				const verifyUrl = `/api/ziina/verify?payment_intent_id=${encodeURIComponent(paymentIntentId)}&orderId=${encodeURIComponent(orderId)}`;
+				const response = await fetch(verifyUrl, { cache: "no-store", credentials: "same-origin" });
+				const data = await response.json() as any;
+				if (!isMounted) return;
+				if (response.ok && data.success && data.isPaid === true) {
+					setResult({ status: String(data.status || "completed"), isPaid: true, intent: data.intent });
+					clearCart();
+				} else {
+					setResult({ status: String(data.status || "unverified"), isPaid: false });
 				}
-			} catch (err) {
-				console.warn("Verification error:", err);
-				if (isMounted) {
-					const isSuccessFallback = statusParam === "success";
-					setResult({
-						status: isSuccessFallback ? "completed" : "failed",
-						isPaid: isSuccessFallback,
-					});
-					if (isSuccessFallback) clearCart();
-					const targetId = orderId || paymentIntentId;
-					if (targetId) {
-						updateOrderPaymentDetails(targetId, {
-							paymentStatus: isSuccessFallback ? "paid" : "failed",
-							status: isSuccessFallback ? "processing" : "pending",
-							ziinaPaymentIntentId: paymentIntentId,
-						});
-					}
-					setIsLoading(false);
-				}
+			} catch (error) {
+				console.warn("Payment verification error:", error);
+				if (isMounted) setResult({ status: "unverified", isPaid: false });
+			} finally {
+				if (isMounted) setIsLoading(false);
 			}
 		}
-
 		verifyPayment();
-		return () => {
-			isMounted = false;
-		};
-	}, [paymentIntentId, orderId, isSimulated, statusParam]);
+		return () => { isMounted = false; };
+	}, [paymentIntentId, orderId]);
 
-	const isSuccess = statusParam === "success" && (result?.isPaid ?? true);
-	const isCancelled = statusParam === "cancelled";
-
+	const isSuccess = result?.isPaid === true;
+	const isCancelled = statusParam === "cancelled" && !isSuccess;
 	return (
 		<div className="min-h-screen bg-[#FAF7F2] text-right flex flex-col justify-between selection:bg-amber-100 selection:text-amber-900">
 			{/* Top Bar Header */}
