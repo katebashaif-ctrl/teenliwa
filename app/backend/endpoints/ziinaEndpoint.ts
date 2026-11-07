@@ -7,7 +7,7 @@ const ZIINA_API_BASE = "https://api-v2.ziina.com/api";
 export function getZiinaEnvConfig(context?: any) {
   const env = (context as any)?.cloudflare?.env || process.env || {};
   return {
-    token: String(env.ZIINA_API_TOKEN || "").replace(/^Bearer\\s+/i, "").trim(),
+    token: String(env.ZIINA_API_TOKEN || "").replace(/^Bearer\s+/i, "").trim(),
     isTestMode: String(env.ZIINA_TEST_MODE || "true").toLowerCase() === "true",
     webhookSecret: String(env.ZIINA_WEBHOOK_SECRET || "").trim(),
   };
@@ -82,6 +82,7 @@ export async function handleZiinaCreateIntent({ request, context }: ActionFuncti
     const payload = {
       amount: amountInFils,
       currency_code: "AED",
+      operation_id: "teenliwa-order-" + order.id,
       message: "Teen Liwa Order #" + order.orderNumber,
       success_url: base + "/payment/callback?status=success&orderId=" + encodedOrder,
       cancel_url: base + "/payment/callback?status=cancelled&orderId=" + encodedOrder,
@@ -149,7 +150,7 @@ export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs
       }, d1);
       if (!saved) return Response.json({ success:false, error:"Payment state could not be persisted" }, { status:503 });
     }
-    return Response.json({ success:true, status:isPaid ? "completed" : state, isPaid, intent:{ id:intent.id, amount:intent.amount, currency_code:intent.currency_code, status:intent.status, card_details:intent.card_details }, isLive:true }, { headers: { "Cache-Control":"no-store" } });
+    return Response.json({ success:true, status:isPaid ? "completed" : state, isPaid, isLive:true }, { headers: { "Cache-Control":"no-store" } });
   } catch (error) {
     console.error("Ziina verification error:", error);
     return Response.json({ success:false, error:"Failed to verify payment intent" }, { status:500 });
