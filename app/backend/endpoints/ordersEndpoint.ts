@@ -81,7 +81,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
   const method = request.method.toUpperCase();
   const intent = body.intent || (method === "POST" ? "create_order" : method === "PATCH" ? "update_status" : "delete_order");
 
-  if (intent === "create_order" || method === "POST") {
+  if (intent === "create_order") {
     const orderData = body;
     if (!orderData.customerName || !orderData.customerPhone || !Array.isArray(orderData.items)) {
       return Response.json(
