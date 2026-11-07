@@ -1,143 +1,35 @@
-/**
- * Admin Authentication utility for API routes and CMS
- * Protects administrative routes like /api/orders from unauthorized access.
+/** Signed, short-lived server-side admin sessions. Configure ADMIN_PASSWORD (16+ chars)
+ * and ADMIN_SESSION_SECRET (32+ random chars) as Cloudflare Worker secrets.
  */
-
-export const ADMIN_AUTH_TOKEN = "teenliwa-admin-secret";
-export const ADMIN_COOKIE_NAME = "teenliwa_admin_auth";
-
-interface AdminAuthResult {
-  authorized: boolean;
-  reason?: string;
+export const ADMIN_COOKIE_NAME = "teenliwa_admin_session";
+const SESSION_SECONDS = 8 * 60 * 60;
+function envOf(context?: any): Record<string, string | undefined> { return ((context as any)?.cloudflare?.env || process.env || {}) as Record<string, string | undefined>; }
+function parseCookies(header: string): Record<string, string> {
+ const out: Record<string, string> = {};
+ for (const part of header.split(";")) { const i = part.indexOf("="); if (i > 0) { const key = part.slice(0, i).trim(); try { out[key] = decodeURIComponent(part.slice(i + 1).trim()); } catch { out[key] = ""; } } }
+ return out;
 }
-
-/**
- * Validates whether the incoming Request has valid Admin credentials.
- * Supports:
- *  1. Header: Authorization: Bearer <token>
- *  2. Header: Authorization: Basic <base64(user:pass)>
- *  3. Header: x-admin-token, x-admin-key, x-admin-auth
- *  4. Cookie: khayrat_admin_auth=<token|1|true>
- *  5. Query param: ?admin_token=<token> or ?admin_key=<token>
- */
-export function verifyAdminAuth(request: Request, context?: any): AdminAuthResult {
-  const env = (context as any)?.cloudflare?.env || process.env || {};
-  const configuredSecret = env.ADMIN_SECRET || env.ADMIN_TOKEN || ADMIN_AUTH_TOKEN;
-  const configuredPassword = env.ADMIN_PASSWORD || "admin";
-
-  const validTokens = new Set(
-    [configuredSecret, ADMIN_AUTH_TOKEN, configuredPassword].filter(
-      (value): value is string => typeof value === "string" && value.trim().length > 0,
-    ),
-  );
-
-  // 1. Check Authorization header
-  const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
-  if (authHeader) {
-    const trimmed = authHeader.trim();
-
-    // Bearer token
-    if (trimmed.toLowerCase().startsWith("bearer ")) {
-      const token = trimmed.slice(7).trim();
-      if (validTokens.has(token)) {
-        return { authorized: true };
-      }
-    }
-
-    // Basic Auth (e.g. admin:admin)
-    if (trimmed.toLowerCase().startsWith("basic ")) {
-      try {
-        const base64 = trimmed.slice(6).trim();
-        const decoded = typeof atob === "function" ? atob(base64) : Buffer.from(base64, "base64").toString("utf-8");
-        const [user, pass] = decoded.split(":");
-        if (
-          user?.trim() === "admin" &&
-          (pass?.trim() === configuredPassword || validTokens.has(pass?.trim() ?? ""))
-        ) {
-          return { authorized: true };
-        }
-      } catch {
-        // invalid base64, continue to other checks
-      }
-    }
-  }
-
-  // 2. Check Custom Admin Headers
-  const customToken =
-    request.headers.get("x-admin-token") ||
-    request.headers.get("x-admin-key") ||
-    request.headers.get("x-admin-auth") ||
-    request.headers.get("X-Admin-Token") ||
-    request.headers.get("X-Admin-Key");
-
-  if (
-    customToken &&
-    (validTokens.has(customToken.trim()) || customToken.trim() === "true" || customToken.trim() === "1")
-  ) {
-    return { authorized: true };
-  }
-
-  // 3. Check Cookies (for admin sessions in browser)
-  const cookieHeader = request.headers.get("cookie") || request.headers.get("Cookie");
-  if (cookieHeader) {
-    const cookies = parseCookies(cookieHeader);
-    const sessionVal =
-      cookies[ADMIN_COOKIE_NAME] ||
-      cookies["teen_liwa_admin_auth"] ||
-      cookies["admin_auth"] ||
-      cookies["admin_token"] ||
-      cookies["admin_session"];
-
-    if (sessionVal && (validTokens.has(sessionVal) || sessionVal === "1" || sessionVal === "true")) {
-      return { authorized: true };
-    }
-  }
-
-  // 4. Check query params (e.g. /api/orders?admin_token=...)
-  try {
-    const url = new URL(request.url);
-    const queryToken =
-      url.searchParams.get("admin_token") ||
-      url.searchParams.get("admin_key") ||
-      url.searchParams.get("key");
-    if (queryToken && validTokens.has(queryToken.trim())) {
-      return { authorized: true };
-    }
-  } catch {
-    // ignore URL parse errors
-  }
-
-  return {
-    authorized: false,
-    reason: "Unauthorized. Admin Authorization Required",
-  };
+function equal(a: string, b: string): boolean { if (!a || !b || a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
+function toHex(buffer: ArrayBuffer): string { return Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, "0")).join(""); }
+async function sign(expiry: string, secret: string): Promise<string> {
+ const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+ return toHex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("teenliwa-admin-v1:" + expiry)));
 }
-
-/**
- * Generates headers for client-side authenticated requests to admin endpoints.
- */
-export function getAdminRequestHeaders(): Record<string, string> {
-  const runtimeSecret =
-    typeof process !== "undefined" && process.env
-      ? process.env.ADMIN_SECRET || process.env.ADMIN_TOKEN || ADMIN_AUTH_TOKEN
-      : ADMIN_AUTH_TOKEN;
-
-  return {
-    Authorization: `Bearer ${runtimeSecret}`,
-    "x-admin-token": runtimeSecret,
-  };
+export async function createAdminSessionCookie(request: Request, context?: any): Promise<string | null> {
+ const secret = String(envOf(context).ADMIN_SESSION_SECRET || ""); if (secret.length < 32) return null;
+ const expiry = String(Math.floor(Date.now() / 1000) + SESSION_SECONDS); const signature = await sign(expiry, secret);
+ const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+ return ADMIN_COOKIE_NAME + "=" + encodeURIComponent(expiry + "." + signature) + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=" + SESSION_SECONDS + secure;
 }
-
-/**
- * Helper to parse cookies from Cookie header
- */
-function parseCookies(cookieStr: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  cookieStr.split(";").forEach((pair) => {
-    const [key, val] = pair.split("=");
-    if (key) {
-      result[key.trim()] = val ? decodeURIComponent(val.trim()) : "";
-    }
-  });
-  return result;
+export function clearAdminSessionCookie(request: Request): string { const secure = new URL(request.url).protocol === "https:" ? "; Secure" : ""; return ADMIN_COOKIE_NAME + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0" + secure; }
+export async function verifyAdminAuth(request: Request, context?: any): Promise<{ authorized: boolean; reason?: string }> {
+ const secret = String(envOf(context).ADMIN_SESSION_SECRET || ""); if (secret.length < 32) return { authorized: false, reason: "Admin authentication is not configured" };
+ const token = parseCookies(request.headers.get("cookie") || "")[ADMIN_COOKIE_NAME] || ""; const parts = token.split("."); const expiry = parts[0] || ""; const signature = parts[1] || "";
+ if (!/^\d{10}$/.test(expiry) || !signature || parts.length !== 2 || Number(expiry) <= Math.floor(Date.now() / 1000)) return { authorized: false, reason: "Admin session is missing or expired" };
+ try { if (!equal(signature, await sign(expiry, secret))) return { authorized: false, reason: "Invalid admin session" };
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) { const origin = request.headers.get("origin"); if (origin && origin !== new URL(request.url).origin) return { authorized: false, reason: "Cross-origin request rejected" }; }
+  return { authorized: true };
+ } catch { return { authorized: false, reason: "Unable to validate admin session" }; }
 }
+/** Same-origin fetch sends the HttpOnly session cookie automatically. Never ship tokens to clients. */
+export function getAdminRequestHeaders(): Record<string, string> { return {}; }
