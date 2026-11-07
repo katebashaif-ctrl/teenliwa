@@ -12,76 +12,10 @@
     "metaPixelId": "987654321098765",
     "facebookCatalogFeedEnabled": true,
     "currency": "AED",
-    "ziinaEnabled": true,
-    "ziinaTestMode": true,
-    "ziinaApiKey": ""
+    "ziinaEnabled": false,
+    "ziinaTestMode": true
   },
-  "orders": [
-    {
-      "id": "ord-1001",
-      "orderNumber": "AED-1001",
-      "customerName": "سالم بن راشد المنصوري",
-      "customerPhone": "+971 50 847 2190",
-      "customerEmirate": "أبوظبي",
-      "customerAddress": "حي البطين، فيلا ١٤، قرب قصر الحصن",
-      "notes": "يرجى التوصيل بعد صلاة العصر، الرطب لضيافة مجلس",
-      "giftNote": "إهداء من سالم المنصوري بمناسبة قدوم الضيوف الكرام",
-      "items": [
-        {
-          "productId": "sku-0007",
-          "name": "تمر اخلاص  (3 كيلو)",
-          "quantity": 2,
-          "price": 150,
-          "unit": "صندوق ٣ كجم"
-        },
-        {
-          "productId": "sku-0003",
-          "name": "فقع علبة 400 جرام",
-          "quantity": 1,
-          "price": 150,
-          "unit": "علبة ٤٠٠ جرام"
-        }
-      ],
-      "subtotal": 450,
-      "deliveryFee": 0,
-      "discount": 0,
-      "total": 450,
-      "paymentMethod": "cod",
-      "status": "processing",
-      "createdAt": "2026-10-20T09:15:00Z"
-    },
-    {
-      "id": "ord-1002",
-      "orderNumber": "AED-1002",
-      "customerName": "شيخة راشد الكعبي",
-      "customerPhone": "+971 55 312 9944",
-      "customerEmirate": "العين",
-      "customerAddress": "منطقة الهيلي، شارع المعترض، منزل ٢٧",
-      "items": [
-        {
-          "productId": "sku-0001",
-          "name": "تين احمر طازج",
-          "quantity": 2,
-          "price": 100,
-          "unit": "كيلو قطاف طازج"
-        },
-        {
-          "productId": "sku-0002",
-          "name": "تين أصفر طازج",
-          "quantity": 1,
-          "price": 100,
-          "unit": "كيلو قطاف طازج"
-        }
-      ],
-      "subtotal": 300,
-      "deliveryFee": 0,
-      "discount": 20,
-      "total": 280,
-      "paymentMethod": "card_on_delivery",
-      "status": "shipped",
-      "createdAt": "2026-10-19T16:40:00Z"
-    }
-  ],
+  "orders": [],
   "metaConfig": {
     "adAccountId": "",
     "accessToken": "",
@@ -103,8 +37,17 @@
       "clicks": 1890,
       "leadsCount": 48,
       "conversions": 34,
-      "targetEmirates": ["أبوظبي", "دبي", "الشارقة", "العين"],
-      "targetInterests": ["مجالس الضيافة", "رطب وتمور فاخرة", "المطبخ الإماراتي"],
+      "targetEmirates": [
+        "أبوظبي",
+        "دبي",
+        "الشارقة",
+        "العين"
+      ],
+      "targetInterests": [
+        "مجالس الضيافة",
+        "رطب وتمور فاخرة",
+        "المطبخ الإماراتي"
+      ],
       "productCategory": "dates",
       "headline": "تمور خلاص ليوا الملكية الفاخرة",
       "primaryText": "من واحات ليوا العريقة إلى سفرتكم مباشرة.. تمور خلاص نخب أول بعسليته وقوامه الفاخر. توصيل مبرد لكافة الإمارات.",
@@ -123,8 +66,19 @@
       "clicks": 2740,
       "leadsCount": 92,
       "conversions": 61,
-      "targetEmirates": ["أبوظبي", "دبي", "الشارقة", "عجمان", "رأس الخيمة", "الفجيرة"],
-      "targetInterests": ["كمأة الصحراء", "كشتات وصحراء الإمارات", "ضيافة الشيوخ"],
+      "targetEmirates": [
+        "أبوظبي",
+        "دبي",
+        "الشارقة",
+        "عجمان",
+        "رأس الخيمة",
+        "الفجيرة"
+      ],
+      "targetInterests": [
+        "كمأة الصحراء",
+        "كشتات وصحراء الإمارات",
+        "ضيافة الشيوخ"
+      ],
       "productCategory": "truffle",
       "headline": "حجز كميات فقع الصحراء الطازج",
       "primaryText": "نوادر فقع الصحراء المعبأة بعناية. احجز علبتك الآن لضيافة المجلس الفاخرة.",
@@ -134,32 +88,8 @@
       "createdAt": "2026-10-17T10:00:00Z"
     }
   ],
-  "leads": [
-    {
-      "id": "lead-001",
-      "customerName": "سعادة راشد المنصوري",
-      "phone": "+971508821943",
-      "emirate": "أبوظبي",
-      "sourceCampaign": "حملة نوادر فقع الصحراء",
-      "interestedProduct": "فقع علبة 400 جرام",
-      "quantityEstimated": "٣ علب لضيافة المجلس",
-      "budgetAED": 450,
-      "leadStatus": "qualified",
-      "aiScore": "high",
-      "aiSummary": "عميل VIP من أبوظبي يبحث عن نوادر الفقع لوليمة عائلية. يُفضل الشحن المبرد السريع.",
-      "notes": "تم التواصل هاتفياً وطلب تأكيد وصول دفعة قطاف الغد.",
-      "createdAt": "2026-10-21T06:30:00Z"
-    }
-  ],
+  "leads": [],
   "mcpConfig": {
-    "mcpServers": {
-      "meta-mcp": {
-        "transport": "http",
-        "url": "https://mcp.teenliwa.com/mcp",
-        "headers": {
-          "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJ3b3Jrc3BhY2VJZCI6IndvcmtzcGFjZV9hZG1pbiIsInJvbGVzIjpbImFkbWluIl0sInNjb3BlcyI6WyJtY3AiXSwiY2xpZW50X2lkIjoibWV0YS1tY3AtYWRtaW4iLCJzdWIiOiJhcHBfYWRtaW4iLCJpYXQiOjE3OTI2Mjg3MTcsImV4cCI6MTc5MjYzMjMxN30.3rjkPzujwBRxwLlerH45Nh0a9YN6Ew-fTD6tY62RWQc"
-        }
-      }
-    }
+    "mcpServers": {}
   }
 }
