@@ -93,19 +93,26 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     try {
       if (!d1) return Response.json({ success: false, error: "Order storage is unavailable" }, { status: 503 });
       if (orderData.items.length < 1 || orderData.items.length > 50) return Response.json({ success: false, error: "Invalid item count" }, { status: 400 });
-      const { products } = await getProductsFromDb(d1);
+      const productResult = await getProductsFromDb(d1);
+      if (productResult.storageType !== "d1_database") return Response.json({ success:false, error:"The live product catalog could not be loaded. Please retry later." }, { status:503 });
+      const products = productResult.products;
       const productMap = new Map(products.map((product: any) => [String(product.id), product]));
       const items = orderData.items.map((item: any) => {
         const product = productMap.get(String(item.productId || item.id || item.product?.id || ""));
         const quantity = Number(item.quantity);
-        if (!product || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100 || product.inStock === false) throw new Error("Invalid or unavailable product");
+        const price = Number(product?.price);
+        if (!product || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100 || product.inStock === false || !Number.isFinite(price) || price < 0) throw new Error("Invalid or unavailable product");
         if (Number.isFinite(product.stockQuantity) && quantity > Number(product.stockQuantity)) throw new Error("Insufficient stock");
-        return { productId: product.id, name: product.name, quantity, price: Number(product.price), unit: product.unit || item.unit || "piece", packagingOption: item.packagingOption };
+        return { productId: product.id, name: product.name, quantity, price, unit: product.unit || item.unit || "piece", packagingOption: item.packagingOption };
       });
       const subtotal = items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
       const env = (context as any)?.cloudflare?.env || {};
-      const freeThreshold = Math.max(0, Number(env.FREE_DELIVERY_THRESHOLD ?? 250));
-      const deliveryFee = subtotal >= freeThreshold ? 0 : Math.max(0, Number(env.STANDARD_DELIVERY_FEE ?? 30));
+      const configuredThreshold = Number(env.FREE_DELIVERY_THRESHOLD ?? 250);
+      const configuredDeliveryFee = Number(env.STANDARD_DELIVERY_FEE ?? 30);
+      const freeThreshold = Number.isFinite(configuredThreshold) ? Math.max(0, configuredThreshold) : 250;
+      const deliveryFeeAmount = Number.isFinite(configuredDeliveryFee) ? Math.max(0, configuredDeliveryFee) : 30;
+      const deliveryFee = subtotal >= freeThreshold ? 0 : deliveryFeeAmount;
+      if (!Number.isFinite(subtotal) || !Number.isSafeInteger(Math.round(subtotal * 100)) || subtotal > 1000000) throw new Error("Invalid order total");
       const paymentMethod = ["ziina", "cod", "card_on_delivery", "whatsapp"].includes(orderData.paymentMethod) ? orderData.paymentMethod : "cod";
       const normalizedOrder: any = {
         customerName: String(orderData.customerName).trim().slice(0, 120),
