@@ -163,12 +163,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
         remoteObjectsCount = keys.length;
         remoteImages = keys
           .filter((k) => /^(images|products)\//.test(k) && /\.(jpg|jpeg|png|webp|gif)$/i.test(k))
-          .map((k) => {
-            if (CFG.publicUrl) {
-              return `${CFG.publicUrl}/${k}`;
-            }
-            return `/api/r2?key=${encodeURIComponent(k)}`;
-          });
+          .map((k) => `/api/r2?key=${encodeURIComponent(k)}`);
       } else {
         listError = `LIST HTTP ${res.status}`;
       }
@@ -184,12 +179,12 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
     success: true,
     connected,
     s3Configured,
-    publicUrlConfigured: Boolean(CFG.publicUrl),
+    publicUrlConfigured: false,
     bucket: CFG.bucket,
     accountId: CFG.accountId,
     accessKeyConfigured: Boolean(CFG.accessKeyId),
     endpoint: CFG.endpoint,
-    publicUrl: CFG.publicUrl,
+    publicUrl: "",
     hasSecretKey: Boolean(CFG.secretAccessKey),
     remoteObjectsCount,
     remoteImages,
@@ -334,12 +329,7 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
         );
       }
 
-      let finalImageUrl = "";
-      if (CFG.publicUrl) {
-        finalImageUrl = `${CFG.publicUrl}/${r2Key}`;
-      } else {
-        finalImageUrl = `/api/r2?key=${encodeURIComponent(r2Key)}`;
-      }
+      const finalImageUrl = `/api/r2?key=${encodeURIComponent(r2Key)}`;
 
       return Response.json({
         success: true,
