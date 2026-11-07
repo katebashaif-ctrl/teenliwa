@@ -4,6 +4,7 @@ export default [
 	index("routes/home.tsx"),
 	route("cms", "routes/cms.tsx"),
 	route("admin", "routes/admin.tsx"),
+	route("api/admin/session", "routes/api.admin.session.ts"),
 	route("api/r2", "routes/api.r2.ts"),
 	route("api/catalog/meta", "routes/api.catalog.meta.ts"),
 	route("api/meta/campaigns", "routes/api.meta.campaigns.ts"),
