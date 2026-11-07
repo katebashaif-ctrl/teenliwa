@@ -422,7 +422,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (savedLeads) setMarketingLeads(JSON.parse(savedLeads));
 
 			const savedConfig = localStorage.getItem(STORAGE_KEYS.META_CONFIG);
-			if (savedConfig) setMetaConfig(JSON.parse(savedConfig));
+			if (savedConfig) { const parsedConfig = JSON.parse(savedConfig); delete parsedConfig.accessToken; setMetaConfig({ ...INITIAL_META_CONFIG, ...parsedConfig, accessToken: "" }); }
 
 			const savedMcp = localStorage.getItem(STORAGE_KEYS.MCP_CONFIG);
 			if (savedMcp) {
@@ -493,7 +493,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	useEffect(() => {
 		if (!isClient) return;
 		try {
-			localStorage.setItem(STORAGE_KEYS.META_CONFIG, JSON.stringify(metaConfig));
+			const safeMetaConfig = { ...metaConfig } as any; delete safeMetaConfig.accessToken; localStorage.setItem(STORAGE_KEYS.META_CONFIG, JSON.stringify(safeMetaConfig));
 		} catch (e) {}
 	}, [metaConfig, isClient]);
 
@@ -1149,8 +1149,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 	// Meta Config
 	const updateMetaConfig = (newConfig: Partial<MetaMarketingApiConfig>) => {
-		setMetaConfig((prev) => ({ ...prev, ...newConfig }));
-		showToast(t("toasts.metaSettings"), t("toasts.metaSettingsMsg"));
+		const safeConfig = { ...newConfig } as Partial<MetaMarketingApiConfig>;
+		const suppliedToken = Boolean(String(safeConfig.accessToken || "").trim());
+		delete (safeConfig as any).accessToken;
+		setMetaConfig((prev) => ({ ...prev, ...safeConfig, accessToken: "" }));
+		if (suppliedToken) showToast("Meta API credentials", "The access token is not saved in the browser. Configure META_ACCESS_TOKEN as a Cloudflare Worker secret.", "warning");
+		else showToast(t("toasts.metaSettings"), t("toasts.metaSettingsMsg"));
 	};
 
 	// Settings & Reset
