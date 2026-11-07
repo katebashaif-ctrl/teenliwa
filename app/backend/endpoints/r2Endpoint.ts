@@ -27,7 +27,7 @@ const CFG: R2Config = {
 };
 
 function getR2Client(): AwsClient | null {
-  if (!CFG.accessKeyId || !CFG.secretAccessKey) return null;
+  if (!CFG.accessKeyId || !CFG.secretAccessKey || !CFG.endpoint || !CFG.bucket) return null;
   return new AwsClient({
     accessKeyId: CFG.accessKeyId,
     secretAccessKey: CFG.secretAccessKey,
@@ -36,6 +36,17 @@ function getR2Client(): AwsClient | null {
   });
 }
 
+function sanitizePublicCatalog(value: any): any {
+  if (Array.isArray(value)) return value.map(sanitizePublicCatalog);
+  if (!value || typeof value !== "object") return value;
+  const output: Record<string, any> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (["orders", "leads", "metaConfig", "mcpConfig", "adminConfig"].includes(key)) continue;
+    if (/(access.?token|api.?key|secret|password|authorization|webhook.?secret)/i.test(key)) continue;
+    output[key] = sanitizePublicCatalog(entry);
+  }
+  return output;
+}
 function getMimeType(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -108,8 +119,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
 
         if (res.ok) {
           const text = await res.text();
-          const data = JSON.parse(text);
-          if (data && typeof data === "object" && data.settings && typeof data.settings === "object") delete data.settings.ziinaApiKey;
+          const data = sanitizePublicCatalog(JSON.parse(text));
 
           return Response.json({
             success: true,
