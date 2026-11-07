@@ -1213,106 +1213,14 @@ export const CMSDashboard: React.FC = () => {
 								</h4>
 							</div>
 							<p className="text-xs text-stone-500 leading-relaxed">
-								يمكنك تعديل وحفظ مفاتيح R2 الخاصة بك هنا. يتم استخدام هذه المفاتيح لتخزين صور المنتجات مباشرة في سلة <strong>{r2Status.bucket}</strong> وتحديث الكتالوج (data/store.json) بدون أي تخزين محلي على الخادم.
+								تُقرأ مفاتيح R2 من Cloudflare Worker secrets فقط. لا تُدخل مفاتيح الوصول في المتصفح. اضبط CLOUDFLARE_R2_ACCESS_KEY_ID وCLOUDFLARE_R2_SECRET_ACCESS_KEY وCLOUDFLARE_ACCOUNT_ID وCLOUDFLARE_R2_BUCKET في إعدادات Worker.
 							</p>
 
-							<form onSubmit={handleSaveR2Config} className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-								<div>
-									<label className="block text-stone-700 font-semibold mb-1">
-										CLOUDFLARE_R2_SECRET_ACCESS_KEY (مفتاح الوصول السري):
-									</label>
-									<input
-										type="password"
-										value={r2ConfigForm.secretAccessKey}
-										onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, secretAccessKey: e.target.value })}
-										placeholder="الصق مفتاح Secret Access Key هنا..."
-										className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-lg font-mono text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-										dir="ltr"
-									/>
-									<p className="text-[10px] text-stone-400 mt-0.5">
-										يتم الحصول عليه من Cloudflare Dashboard &gt; R2 &gt; Manage R2 API Tokens.
-									</p>
-								</div>
-
-								<div>
-									<label className="block text-stone-700 font-semibold mb-1">
-										CLOUDFLARE_R2_ACCESS_KEY_ID (معرّف مفتاح الوصول):
-									</label>
-									<input
-										type="text"
-										value={r2ConfigForm.accessKeyId}
-										onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, accessKeyId: e.target.value })}
-										placeholder="Access Key ID"
-										className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-lg font-mono text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-										dir="ltr"
-									/>
-								</div>
-
-								<div>
-									<label className="block text-stone-700 font-semibold mb-1">
-										CLOUDFLARE_ACCOUNT_ID (معرّف حساب Cloudflare):
-									</label>
-									<input
-										type="text"
-										value={r2ConfigForm.accountId}
-										onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, accountId: e.target.value })}
-										placeholder="Account ID"
-										className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-lg font-mono text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-										dir="ltr"
-									/>
-								</div>
-
-								<div>
-									<label className="block text-stone-700 font-semibold mb-1">
-										CLOUDFLARE_R2_BUCKET (اسم سلة التخزين):
-									</label>
-									<input
-										type="text"
-										value={r2ConfigForm.bucket}
-										onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, bucket: e.target.value })}
-										placeholder="bt-liwa"
-										className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-lg font-mono text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-										dir="ltr"
-									/>
-								</div>
-
-								<div className="md:col-span-2">
-									<label className="block text-stone-700 font-semibold mb-1">
-										CLOUDFLARE_R2_PUBLIC_URL (رابط النطاق العام للصور أو Custom Domain):
-									</label>
-									<input
-										type="text"
-										value={r2ConfigForm.publicUrl}
-										onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, publicUrl: e.target.value })}
-										placeholder="https://r2.teenliwa.com/products أو https://pub-xxx.r2.dev"
-										className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-lg font-mono text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-										dir="ltr"
-									/>
-									<p className="text-[10px] text-stone-400 mt-0.5">
-										إذا تُرك فارغاً، سيتم بث الصور وعرضها مباشرة عبر نقطة النهاية السحابية /api/r2?key=... بدون الحاجة لنطاق مخصص.
-									</p>
-								</div>
-
-								<div className="md:col-span-2 flex items-center justify-end gap-2 pt-2">
-									<button
-										type="submit"
-										disabled={isSavingR2Config}
-										className="px-5 py-2.5 bg-[#8B5A2B] hover:bg-[#6D4420] text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-2 shadow"
-									>
-										{isSavingR2Config ? (
-											<>
-												<RefreshCw className="w-3.5 h-3.5 animate-spin" />
-												<span>جاري الاختبار والحفظ...</span>
-											</>
-										) : (
-											<>
-												<CheckCircle2 className="w-3.5 h-3.5" />
-												<span>حفظ واختبار الاتصال بسحابة Cloudflare R2</span>
-											</>
-										)}
-									</button>
-								</div>
-							</form>
+							<div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950 leading-6">
+  <strong>إعداد آمن لمفاتيح R2</strong>
+  <p>افتح Cloudflare Dashboard ثم Workers & Pages ثم teenliwa ثم Settings ثم Variables and Secrets. أضف المفاتيح كـ Secrets، ثم أعد نشر Worker.</p>
+  <p dir="ltr" className="font-mono">CLOUDFLARE_ACCOUNT_ID<br/>CLOUDFLARE_R2_ACCESS_KEY_ID<br/>CLOUDFLARE_R2_SECRET_ACCESS_KEY<br/>CLOUDFLARE_R2_BUCKET<br/>CLOUDFLARE_R2_ENDPOINT<br/>CLOUDFLARE_R2_PUBLIC_URL</p>
+</div>
 						</div>
 
 						{/* Cloudflare R2 Media Gallery */}
