@@ -1,3 +1,4 @@
+import { verifyAdminAuth } from "../../utils/adminAuth";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { INITIAL_META_CAMPAIGNS, INITIAL_META_CONFIG, INITIAL_PRODUCTS } from "../../data/initialData";
 import type { MetaCampaign, MetaMarketingApiConfig } from "../../types/store";
@@ -5,7 +6,9 @@ import type { MetaCampaign, MetaMarketingApiConfig } from "../../types/store";
 let storedConfig: MetaMarketingApiConfig = { ...INITIAL_META_CONFIG };
 let storedCampaigns: MetaCampaign[] = [...INITIAL_META_CAMPAIGNS];
 
-export async function handleMetaCampaignsLoader({ request }: LoaderFunctionArgs) {
+export async function handleMetaCampaignsLoader({ request, context }: LoaderFunctionArgs) {
+	const auth = await verifyAdminAuth(request, context);
+	if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401, headers: { "Cache-Control":"no-store" } });
 	const url = new URL(request.url);
 	const actionType = url.searchParams.get("action");
 
@@ -52,7 +55,9 @@ export async function handleMetaCampaignsLoader({ request }: LoaderFunctionArgs)
 	});
 }
 
-export async function handleMetaCampaignsAction({ request }: ActionFunctionArgs) {
+export async function handleMetaCampaignsAction({ request, context }: ActionFunctionArgs) {
+	const auth = await verifyAdminAuth(request, context);
+	if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401 });
 	try {
 		const body = (await request.json()) as {
 			intent: string;
