@@ -608,47 +608,25 @@ export async function updateOrderPaymentInDb(
  * Delete order from the database
  */
 export async function deleteOrderFromDb(orderId: string, d1?: D1DatabaseLike): Promise<boolean> {
-  memoryOrdersCache = memoryOrdersCache.filter((o) => o.id !== orderId);
-
-  if (d1) {
-    try {
-      await initializeD1Schema(d1);
-      try {
-        await d1.prepare("DELETE FROM order_items WHERE order_id = ?").bind(orderId).run();
-      } catch {}
-      await d1.prepare("DELETE FROM orders WHERE id = ? OR tracking_number = ? OR order_number = ?").bind(orderId, orderId, orderId).run();
-    } catch (e: any) {
-      if (String(e).includes("no such table")) {
-        await initializeD1Schema(d1, true);
-        try {
-          await d1.prepare("DELETE FROM order_items WHERE order_id = ?").bind(orderId).run();
-        } catch {}
-        await d1.prepare("DELETE FROM orders WHERE id = ? OR tracking_number = ? OR order_number = ?").bind(orderId, orderId, orderId).run();
-      } else {
-        console.warn("D1 delete order error:", e);
-      }
+  if (!d1) return false;
+  try {
+    await initializeD1Schema(d1);
+    const existing = await d1.prepare("SELECT id FROM orders WHERE id = ? OR tracking_number = ? OR order_number = ?").bind(orderId, orderId, orderId).first<any>();
+    if (!existing) return false;
+    try { await d1.prepare("DELETE FROM order_items WHERE order_id = ?").bind(existing.id).run(); } catch {}
+    const result = await d1.prepare("DELETE FROM orders WHERE id = ? OR tracking_number = ? OR order_number = ?").bind(orderId, orderId, orderId).run();
+    const changes = Number((result as any)?.meta?.changes ?? (result as any)?.meta?.rows_written ?? 0);
+    if (changes < 1) return false;
+    memoryOrdersCache = memoryOrdersCache.filter((order) => order.id !== orderId && order.orderNumber !== orderId);
+    // Remove only a legacy per-order object. Never write aggregate customer orders to R2.
+    const r2 = getR2Client();
+    if (r2) {
+      try { await r2.fetch(`${R2_CONFIG.endpoint}/${R2_CONFIG.bucket}/orders/${encodeURIComponent(orderId)}.json`, { method:"DELETE" }); }
+      catch (error) { console.warn("Legacy R2 order cleanup failed:", error); }
     }
+    return true;
+  } catch (error) {
+    console.error("D1 delete order error:", error);
+    return false;
   }
-
-  const r2 = getR2Client();
-  if (r2) {
-    try {
-      await r2.fetch(`${R2_CONFIG.endpoint}/${R2_CONFIG.bucket}/orders/${orderId}.json`, {
-        method: "DELETE",
-      });
-      await r2.fetch(`${R2_CONFIG.endpoint}/${R2_CONFIG.bucket}/data/orders.json`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lastUpdated: new Date().toISOString(),
-          totalOrders: memoryOrdersCache.length,
-          orders: memoryOrdersCache,
-        }),
-      });
-    } catch (err) {
-      console.warn("R2 delete order error:", err);
-    }
-  }
-
-  return true;
 }
