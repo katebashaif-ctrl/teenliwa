@@ -8,7 +8,7 @@ export function getZiinaEnvConfig(context?: any) {
   const env = (context as any)?.cloudflare?.env || process.env || {};
   return {
     token: String(env.ZIINA_API_TOKEN || "").replace(/^Bearer\\s+/i, "").trim(),
-    isTestMode: String(env.ZIINA_TEST_MODE || "false").toLowerCase() === "true",
+    isTestMode: String(env.ZIINA_TEST_MODE || "true").toLowerCase() === "true",
     webhookSecret: String(env.ZIINA_WEBHOOK_SECRET || "").trim(),
   };
 }
@@ -54,24 +54,9 @@ export async function handleZiinaCreateIntent({ request, context }: ActionFuncti
     const config = getZiinaEnvConfig(context);
     if (body.intent === "ping") {
       const auth = await verifyAdminAuth(request, context);
-      if (!auth.authorized) return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
-      if (!config.token) return Response.json({ success: false, configured: false, error: "ZIINA_API_TOKEN is not configured" }, { status: 503 });
-      const response = await fetch(ZIINA_API_BASE + "/payment_intent", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + config.token, "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          amount: 500,
-          currency_code: "AED",
-          message: "Teen Liwa connection diagnostic",
-          success_url: new URL("/payment/callback", new URL(request.url).origin).toString(),
-          cancel_url: new URL("/payment/callback?status=cancelled", new URL(request.url).origin).toString(),
-          failure_url: new URL("/payment/callback?status=failed", new URL(request.url).origin).toString(),
-          test: config.isTestMode,
-          allow_tips: false,
-        }),
-      });
-      const data = await response.json().catch(() => ({})) as any;
-      return Response.json({ success: response.ok && Boolean(data.redirect_url), configured: true, isLiveGateway: response.ok, statusCode: response.status, redirect_url: data.redirect_url, payment_intent_id: data.id, error: response.ok ? undefined : (data.message || "Ziina rejected the request") }, { status: response.ok ? 200 : 502 });
+      if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401 });
+      if (!config.token) return Response.json({ success:false, configured:false, error:"ZIINA_API_TOKEN is not configured" }, { status:503 });
+      return Response.json({ success:true, configured:true, isLiveGateway:false, testMode:config.isTestMode, message:"Server-side payment secret is configured; this diagnostic does not create a payment." }, { headers: { "Cache-Control":"no-store" } });
     }
 
     if (!d1) return Response.json({ success: false, error: "Order database is unavailable" }, { status: 503 });
