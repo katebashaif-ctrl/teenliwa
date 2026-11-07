@@ -79,12 +79,16 @@ export async function handleZiinaCreateIntent({ request, context }: ActionFuncti
     const orderId = String(body.orderId || "").trim();
     if (!orderId) return Response.json({ success: false, error: "orderId is required" }, { status: 400 });
 
-    const { orders } = await getOrdersFromDb(d1);
-    const order = orders.find((candidate) => candidate.id === orderId);
+    const orderResult = await getOrdersFromDb(d1);
+    if (orderResult.storageType !== "d1_database") return Response.json({ success:false, error:"Order database is temporarily unavailable" }, { status:503 });
+    const order = orderResult.orders.find((candidate) => candidate.id === orderId);
     if (!order) return Response.json({ success: false, error: "Order not found" }, { status: 404 });
     if (order.paymentMethod !== "ziina") return Response.json({ success: false, error: "Order is not configured for Ziina" }, { status: 400 });
     if (order.paymentStatus === "paid") return Response.json({ success: false, error: "Order is already paid" }, { status: 409 });
-    if (order.ziinaPaymentIntentId) return Response.json({ success: false, error: "A payment intent already exists for this order. Resume that payment or contact support." }, { status: 409 });
+    if (order.ziinaPaymentIntentId && order.ziinaRedirectUrl) {
+      return Response.json({ success:true, payment_intent:{ id:order.ziinaPaymentIntentId }, redirect_url:order.ziinaRedirectUrl, isLiveGateway:true, testMode:config.isTestMode, resumed:true });
+    }
+    if (order.ziinaPaymentIntentId) return Response.json({ success:false, error:"An earlier payment intent exists but has no redirect URL. Contact support." }, { status:409 });
 
     const amountInFils = Math.round(Number(order.total) * 100);
     if (!Number.isSafeInteger(amountInFils) || amountInFils < 200) return Response.json({ success: false, error: "Invalid order amount" }, { status: 400 });
@@ -94,9 +98,9 @@ export async function handleZiinaCreateIntent({ request, context }: ActionFuncti
       amount: amountInFils,
       currency_code: "AED",
       message: "Teen Liwa Order #" + order.orderNumber,
-      success_url: base + "/payment/callback?status=success&orderId=" + encodedOrder + "&payment_intent_id={PAYMENT_INTENT_ID}",
-      cancel_url: base + "/payment/callback?status=cancelled&orderId=" + encodedOrder + "&payment_intent_id={PAYMENT_INTENT_ID}",
-      failure_url: base + "/payment/callback?status=failed&orderId=" + encodedOrder + "&payment_intent_id={PAYMENT_INTENT_ID}",
+      success_url: base + "/payment/callback?status=success&orderId=" + encodedOrder,
+      cancel_url: base + "/payment/callback?status=cancelled&orderId=" + encodedOrder,
+      failure_url: base + "/payment/callback?status=failed&orderId=" + encodedOrder,
       test: config.isTestMode,
       allow_tips: false,
     };
@@ -124,30 +128,34 @@ export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs
   const d1 = (context as any)?.cloudflare?.env?.DB;
   const config = getZiinaEnvConfig(context);
   const url = new URL(request.url);
-  const paymentIntentId = url.searchParams.get("payment_intent_id") || url.searchParams.get("id") || "";
+  const suppliedIntentId = url.searchParams.get("payment_intent_id") || url.searchParams.get("id") || "";
   const orderId = url.searchParams.get("orderId") || "";
-  if (!paymentIntentId || !orderId) return Response.json({ success: false, error: "payment_intent_id and orderId are required" }, { status: 400 });
-  if (!d1 || !config.token) return Response.json({ success: false, error: "Payment verification is temporarily unavailable" }, { status: 503 });
+  if (!orderId) return Response.json({ success:false, error:"orderId is required" }, { status:400 });
+  if (!d1 || !config.token) return Response.json({ success:false, error:"Payment verification is temporarily unavailable" }, { status:503 });
 
   try {
-    const { orders } = await getOrdersFromDb(d1);
-    const order = orders.find((candidate) => candidate.id === orderId);
-    if (!order || order.ziinaPaymentIntentId !== paymentIntentId) return Response.json({ success: false, error: "Payment intent does not belong to this order" }, { status: 404 });
+    const orderResult = await getOrdersFromDb(d1);
+    if (orderResult.storageType !== "d1_database") return Response.json({ success:false, error:"Order database is temporarily unavailable" }, { status:503 });
+    const order = orderResult.orders.find((candidate) => candidate.id === orderId);
+    if (!order || !order.ziinaPaymentIntentId) return Response.json({ success:false, error:"No payment intent is linked to this order" }, { status:404 });
+    const paymentIntentId = order.ziinaPaymentIntentId;
+    if (suppliedIntentId && suppliedIntentId !== paymentIntentId) return Response.json({ success:false, error:"Payment intent does not belong to this order" }, { status:404 });
 
     const response = await fetch(ZIINA_API_BASE + "/payment_intent/" + encodeURIComponent(paymentIntentId), {
       headers: { Authorization: "Bearer " + config.token, Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) return Response.json({ success: false, error: "Ziina could not confirm this payment", statusCode: response.status }, { status: 502 });
+    if (!response.ok) return Response.json({ success:false, error:"Ziina could not confirm this payment", statusCode:response.status }, { status:502 });
     const intent = await response.json() as any;
     const expectedAmount = Math.round(Number(order.total) * 100);
     if (intent.id !== paymentIntentId || Number(intent.amount) !== expectedAmount || String(intent.currency_code).toUpperCase() !== "AED") {
-      return Response.json({ success: false, error: "Payment details do not match the order" }, { status: 409 });
+      return Response.json({ success:false, error:"Payment details do not match the order" }, { status:409 });
     }
 
     const state = String(intent.status || "").toLowerCase();
-    const isPaid = state === "completed";
+    const isPaid = order.paymentStatus === "paid" || state === "completed";
     const paymentStatus = isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
-    if (paymentStatus !== "pending") {
+    if (paymentStatus !== "pending" && order.paymentStatus !== "paid") {
       const saved = await updateOrderPaymentInDb(order.id, paymentStatus, {
         ziinaPaymentIntentId: paymentIntentId,
         cardBrand: intent.card_details?.card_brand,
@@ -156,10 +164,10 @@ export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs
       }, d1);
       if (!saved) return Response.json({ success:false, error:"Payment state could not be persisted" }, { status:503 });
     }
-    return Response.json({ success: true, status: state, isPaid, intent: { id: intent.id, amount: intent.amount, currency_code: intent.currency_code, status: intent.status, card_details: intent.card_details }, isLive: true }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ success:true, status:isPaid ? "completed" : state, isPaid, intent:{ id:intent.id, amount:intent.amount, currency_code:intent.currency_code, status:intent.status, card_details:intent.card_details }, isLive:true }, { headers: { "Cache-Control":"no-store" } });
   } catch (error) {
     console.error("Ziina verification error:", error);
-    return Response.json({ success: false, error: "Failed to verify payment intent" }, { status: 500 });
+    return Response.json({ success:false, error:"Failed to verify payment intent" }, { status:500 });
   }
 }
 
@@ -181,8 +189,9 @@ export async function handleZiinaWebhook({ request, context }: ActionFunctionArg
     const intent = payload.data?.object || payload.data;
     if (!intent?.id) return Response.json({ success: false, error: "Invalid payment event" }, { status: 400 });
 
-    const { orders } = await getOrdersFromDb(d1);
-    const order = orders.find((candidate) => candidate.ziinaPaymentIntentId === intent.id);
+    const orderResult = await getOrdersFromDb(d1);
+    if (orderResult.storageType !== "d1_database") return Response.json({ success:false, error:"Order database is temporarily unavailable" }, { status:503 });
+    const order = orderResult.orders.find((candidate) => candidate.ziinaPaymentIntentId === intent.id);
     if (!order) return Response.json({ success: false, error: "No matching order" }, { status: 404 });
 
     const expectedAmount = Math.round(Number(order.total) * 100);
@@ -191,8 +200,9 @@ export async function handleZiinaWebhook({ request, context }: ActionFunctionArg
     }
     const state = String(intent.status || "").toLowerCase();
     const isPaid = state === "completed";
-    const paymentStatus = isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
-    if (paymentStatus !== "pending") {
+    const alreadyPaid = order.paymentStatus === "paid";
+    const paymentStatus = alreadyPaid || isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
+    if (paymentStatus !== "pending" && !alreadyPaid) {
       const saved = await updateOrderPaymentInDb(order.id, paymentStatus, {
         ziinaPaymentIntentId: intent.id,
         cardBrand: intent.card_details?.card_brand,
