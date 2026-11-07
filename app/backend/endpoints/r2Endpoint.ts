@@ -1,7 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { AwsClient } from "aws4fetch";
-import fs from "fs";
-import path from "path";
 
 interface R2Config {
   accountId: string;
@@ -15,49 +13,6 @@ interface R2Config {
 
 import { verifyAdminAuth } from "../../utils/adminAuth";
 
-function getConfigFilePath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "app/data/r2-config.json"),
-    "/app/applet/app/data/r2-config.json",
-    path.resolve(process.cwd(), "data/r2-config.json"),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[0];
-}
-
-const LOCAL_CATALOG_PATH = path.resolve(process.cwd(), "app/data/store.json");
-
-function loadPersistedConfig(): Partial<R2Config> {
-  let diskConfig: Partial<R2Config> = {};
-  try {
-    const filePath = getConfigFilePath();
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      diskConfig = JSON.parse(raw);
-    }
-  } catch (err) {
-    console.warn("Could not read r2-config.json:", err);
-  }
-  return diskConfig;
-}
-
-function savePersistedConfig(config: Partial<R2Config>): boolean {
-  try {
-    const filePath = getConfigFilePath();
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
-    return true;
-  } catch (err) {
-    console.warn("Could not save r2-config.json:", err);
-    return false;
-  }
-}
-
 const CFG: R2Config = {
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
   token: process.env.CLOUDFLARE_API_TOKEN || "",
@@ -67,23 +22,9 @@ const CFG: R2Config = {
   endpoint:
     process.env.CLOUDFLARE_R2_ENDPOINT && process.env.CLOUDFLARE_R2_ENDPOINT.includes("r2.cloudflarestorage.com")
       ? process.env.CLOUDFLARE_R2_ENDPOINT.replace(/\/+$/, "")
-      : `https://${process.env.CLOUDFLARE_ACCOUNT_ID || "0b7dc087410628baa1f652ea0fb8bd57"}.r2.cloudflarestorage.com`,
+      : (process.env.CLOUDFLARE_ACCOUNT_ID ? `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com` : ""),
   publicUrl: (process.env.CLOUDFLARE_R2_PUBLIC_URL || "").replace(/\/+$/, ""),
 };
-
-function syncConfigFromDisk() {
-  const p = loadPersistedConfig();
-  if (p.accountId) CFG.accountId = p.accountId;
-  if (p.token) CFG.token = p.token;
-  if (p.accessKeyId) CFG.accessKeyId = p.accessKeyId;
-  if (p.secretAccessKey) CFG.secretAccessKey = p.secretAccessKey;
-  if (p.bucket) CFG.bucket = p.bucket;
-  if (p.endpoint) CFG.endpoint = p.endpoint;
-  if (p.publicUrl !== undefined) CFG.publicUrl = p.publicUrl;
-}
-
-// Initial sync
-syncConfigFromDisk();
 
 function getR2Client(): AwsClient | null {
   if (!CFG.accessKeyId || !CFG.secretAccessKey) return null;
@@ -168,10 +109,6 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
         if (res.ok) {
           const text = await res.text();
           const data = JSON.parse(text);
-          // Keep local backup synchronized
-          try {
-            fs.writeFileSync(LOCAL_CATALOG_PATH, text, "utf-8");
-          } catch {}
 
           return Response.json({
             success: true,
@@ -185,20 +122,6 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
       }
     }
 
-    // Fallback to local store.json if available
-    try {
-      if (fs.existsSync(LOCAL_CATALOG_PATH)) {
-        const localRaw = fs.readFileSync(LOCAL_CATALOG_PATH, "utf-8");
-        const localData = JSON.parse(localRaw);
-        return Response.json({
-          success: true,
-          fromR2: false,
-          fallbackLocal: true,
-          data: localData,
-          message: "Loaded catalog from local persistent storage",
-        });
-      }
-    } catch {}
 
     return Response.json({
       success: false,
@@ -288,25 +211,10 @@ export async function handleR2Action({ request, context }: ActionFunctionArgs) {
 
   const r2 = getR2Client();
 
-  // B. Sync catalog to Cloudflare R2 and local disk
+  // B. Sync catalog to R2. Worker-local files are not durable storage.
   if (body.intent === "sync_catalog") {
-    // 1. Always back up to local disk
-    try {
-      const dir = path.dirname(LOCAL_CATALOG_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(LOCAL_CATALOG_PATH, JSON.stringify(body.data, null, 2), "utf-8");
-    } catch (err) {
-      console.warn("Could not write local store.json backup:", err);
-    }
-
-    // 2. If R2 client is available, push to remote bucket
     if (!r2) {
-      return Response.json({
-        success: true,
-        r2Synced: false,
-        localSynced: true,
-        warning: "Saved locally. Enter R2 Secret Access Key in CMS to enable cloud sync.",
-      });
+      return Response.json({ success:false, r2Synced:false, localSynced:false, error:"R2 Worker secrets are not configured" }, { status:503 });
     }
 
     const t0 = Date.now();
