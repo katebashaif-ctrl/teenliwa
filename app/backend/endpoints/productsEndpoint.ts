@@ -56,6 +56,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
   const auth = await verifyAdminAuth(request, context);
   if (!auth.authorized) return Response.json({ success: false, error: auth.reason || "Unauthorized" }, { status: 401, headers: NO_STORE_HEADERS });
   const d1 = (context as any)?.cloudflare?.env?.DB;
+  if (!d1) return Response.json({ success:false, error:"Product database is unavailable" }, { status:503, headers:NO_STORE_HEADERS });
   let body: any;
   try {
     body = await request.json();
