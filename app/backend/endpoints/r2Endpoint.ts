@@ -13,7 +13,7 @@ interface R2Config {
   publicUrl: string;
 }
 
-import defaultPersistedConfig from "../../data/r2-config.json";
+import { verifyAdminAuth } from "../../utils/adminAuth";
 
 function getConfigFilePath(): string {
   const candidates = [
@@ -40,7 +40,7 @@ function loadPersistedConfig(): Partial<R2Config> {
   } catch (err) {
     console.warn("Could not read r2-config.json:", err);
   }
-  return { ...(defaultPersistedConfig as Partial<R2Config>), ...diskConfig };
+  return diskConfig;
 }
 
 function savePersistedConfig(config: Partial<R2Config>): boolean {
@@ -59,10 +59,10 @@ function savePersistedConfig(config: Partial<R2Config>): boolean {
 }
 
 const CFG: R2Config = {
-  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "0b7dc087410628baa1f652ea0fb8bd57",
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
   token: process.env.CLOUDFLARE_API_TOKEN || "",
-  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "6661dcbf8d777bf587cd42d1bcb8b9ca",
-  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "e6f736a24c5624c6e5227c8b6d3a17c86bc9f7578c8a9e7fea39c125aa85723e",
+  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "",
+  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "",
   bucket: process.env.CLOUDFLARE_R2_BUCKET || "bt-liwa",
   endpoint:
     process.env.CLOUDFLARE_R2_ENDPOINT && process.env.CLOUDFLARE_R2_ENDPOINT.includes("r2.cloudflarestorage.com")
@@ -116,13 +116,16 @@ function getMimeType(filename: string): string {
   }
 }
 
-export async function handleR2Loader({ request }: LoaderFunctionArgs) {
-  syncConfigFromDisk();
+export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const clientSecretKey = request.headers.get("x-r2-secret-key") || url.searchParams.get("secretKey");
-  if (clientSecretKey) CFG.secretAccessKey = clientSecretKey;
   const key = url.searchParams.get("key") || url.searchParams.get("file");
   const intent = url.searchParams.get("intent");
+  const publicImageKey = Boolean(key && !key.includes("..") && !key.includes("\\") && /^(images|products)\//.test(key.replace(/^\/+/, "")));
+  if (!publicImageKey && intent !== "get_catalog") {
+    const auth = await verifyAdminAuth(request, context);
+    if (!auth.authorized) return Response.json({ success:false, error:auth.reason || "Unauthorized" }, { status:401 });
+  }
+  if (key && !publicImageKey) return Response.json({ success:false, error:"Private object" }, { status:404 });
   const r2 = getR2Client();
 
   // 1. Direct object streaming from R2
@@ -258,14 +261,13 @@ export async function handleR2Loader({ request }: LoaderFunctionArgs) {
     remoteImages,
     latencyMs,
     listError,
-    persistedOnDisk: fs.existsSync(getConfigFilePath()),
+    persistedOnDisk: false,
   });
 }
 
-export async function handleR2Action({ request }: ActionFunctionArgs) {
-  syncConfigFromDisk();
-  const clientSecretKey = request.headers.get("x-r2-secret-key");
-  if (clientSecretKey && !CFG.secretAccessKey) CFG.secretAccessKey = clientSecretKey;
+export async function handleR2Action({ request, context }: ActionFunctionArgs) {
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success:false, error:auth.reason || "Unauthorized" }, { status:401 });
   let body: {
     intent?: string;
     data?: unknown;
@@ -280,64 +282,8 @@ export async function handleR2Action({ request }: ActionFunctionArgs) {
   }
 
   // A. Save R2 Configuration (persisted to app/data/r2-config.json)
-  if (body.intent === "save_r2_config" && body.config) {
-    if (body.config.accountId) CFG.accountId = body.config.accountId.trim();
-    if (body.config.accessKeyId) CFG.accessKeyId = body.config.accessKeyId.trim();
-    if (body.config.secretAccessKey) CFG.secretAccessKey = body.config.secretAccessKey.trim();
-    if (body.config.bucket) CFG.bucket = body.config.bucket.trim();
-    if (body.config.publicUrl !== undefined) CFG.publicUrl = body.config.publicUrl.trim().replace(/\/+$/, "");
-    if (body.config.endpoint) {
-      CFG.endpoint = body.config.endpoint.trim().replace(/\/+$/, "");
-    } else if (CFG.accountId) {
-      CFG.endpoint = `https://${CFG.accountId}.r2.cloudflarestorage.com`;
-    }
-
-    const testClient = getR2Client();
-    let testSuccess = false;
-    let testError: string | null = null;
-    let objectsCount = 0;
-    let latencyMs = 0;
-
-    if (testClient) {
-      const t0 = Date.now();
-      try {
-        const testRes = await testClient.fetch(`${CFG.endpoint}/${CFG.bucket}?list-type=2&max-keys=5`);
-        latencyMs = Date.now() - t0;
-        if (testRes.ok) {
-          testSuccess = true;
-          const xml = await testRes.text();
-          const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]);
-          objectsCount = keys.length;
-        } else {
-          testError = `HTTP ${testRes.status} ${testRes.statusText}`;
-        }
-      } catch (err) {
-        latencyMs = Date.now() - t0;
-        testError = err instanceof Error ? err.message : "Connection failed";
-      }
-    } else {
-      testError = "Please enter Secret Access Key and Access Key ID";
-    }
-
-    // Persist configuration to disk
-    savePersistedConfig(CFG);
-
-    return Response.json({
-      success: testSuccess,
-      connected: testSuccess,
-      error: testError,
-      latencyMs,
-      objectsCount,
-      config: {
-        accountId: CFG.accountId,
-        accessKeyId: CFG.accessKeyId,
-        bucket: CFG.bucket,
-        endpoint: CFG.endpoint,
-        publicUrl: CFG.publicUrl,
-        hasSecretKey: Boolean(CFG.secretAccessKey),
-      },
-      message: testSuccess ? "Connected to Cloudflare R2 successfully" : `Connection test failed: ${testError}`,
-    });
+  if (body.intent === "save_r2_config") {
+    return Response.json({ success:false, error:"Configure R2 credentials as Cloudflare Worker secrets; this API does not accept or store credentials." }, { status:400 });
   }
 
   const r2 = getR2Client();
