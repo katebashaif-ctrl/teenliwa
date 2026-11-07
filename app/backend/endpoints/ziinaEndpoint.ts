@@ -111,7 +111,8 @@ export async function handleZiinaCreateIntent({ request, context }: ActionFuncti
       return Response.json({ success: false, error: data.message || "Ziina could not create a payment intent", statusCode: response.status }, { status: 502 });
     }
 
-    await updateOrderPaymentInDb(order.id, "pending", { ziinaPaymentIntentId: data.id, ziinaRedirectUrl: data.redirect_url }, d1);
+    const intentSaved = await updateOrderPaymentInDb(order.id, "pending", { ziinaPaymentIntentId: data.id, ziinaRedirectUrl: data.redirect_url }, d1);
+    if (!intentSaved) return Response.json({ success:false, error:"Payment intent was created but could not be safely linked to the order. Contact support before retrying." }, { status:503 });
     return Response.json({ success: true, payment_intent: data, redirect_url: data.redirect_url, isLiveGateway: true, testMode: config.isTestMode });
   } catch (error) {
     console.error("Ziina create-intent error:", error);
@@ -147,12 +148,13 @@ export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs
     const isPaid = state === "completed";
     const paymentStatus = isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
     if (paymentStatus !== "pending") {
-      await updateOrderPaymentInDb(order.id, paymentStatus, {
+      const saved = await updateOrderPaymentInDb(order.id, paymentStatus, {
         ziinaPaymentIntentId: paymentIntentId,
         cardBrand: intent.card_details?.card_brand,
         cardLastFour: intent.card_details?.card_last_four,
         orderStatus: isPaid ? "processing" : "pending",
       }, d1);
+      if (!saved) return Response.json({ success:false, error:"Payment state could not be persisted" }, { status:503 });
     }
     return Response.json({ success: true, status: state, isPaid, intent: { id: intent.id, amount: intent.amount, currency_code: intent.currency_code, status: intent.status, card_details: intent.card_details }, isLive: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -191,12 +193,13 @@ export async function handleZiinaWebhook({ request, context }: ActionFunctionArg
     const isPaid = state === "completed";
     const paymentStatus = isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
     if (paymentStatus !== "pending") {
-      await updateOrderPaymentInDb(order.id, paymentStatus, {
+      const saved = await updateOrderPaymentInDb(order.id, paymentStatus, {
         ziinaPaymentIntentId: intent.id,
         cardBrand: intent.card_details?.card_brand,
         cardLastFour: intent.card_details?.card_last_four,
         orderStatus: isPaid ? "processing" : "pending",
       }, d1);
+      if (!saved) return Response.json({ success:false, error:"Payment state could not be persisted" }, { status:503 });
     }
     return Response.json({ success: true, received: true });
   } catch (error) {
