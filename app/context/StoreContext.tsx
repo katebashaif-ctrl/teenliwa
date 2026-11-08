@@ -170,7 +170,7 @@ const STORAGE_KEYS = {
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 	const [products, setProducts] = useState<Product[]>([]);
 	const [orders, setOrders] = useState<Order[]>([]);
-	const [settings, setSettings] = useState<StoreSettings>(INITIAL_SETTINGS);
+	const [settings, setSettings] = useState<StoreSettings>({ ...INITIAL_SETTINGS, ziinaApiKey: "", ziinaWebhookSecret: "" });
 	const [mcpConfig, setMcpConfig] = useState<McpServersConfig>(DEFAULT_MCP_CONFIG);
 	const [cart, setCart] = useState<CartItem[]>([]);
 	const [currentView, setCurrentView] = useState<"store" | "cms">("store");
@@ -209,7 +209,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	// Meta Marketing API Campaigns & Leads
 	const [metaCampaigns, setMetaCampaigns] = useState<MetaCampaign[]>([]);
 	const [marketingLeads, setMarketingLeads] = useState<MarketingLead[]>([]);
-	const [metaConfig, setMetaConfig] = useState<MetaMarketingApiConfig>(INITIAL_META_CONFIG);
+	const [metaConfig, setMetaConfig] = useState<MetaMarketingApiConfig>({ ...INITIAL_META_CONFIG, accessToken: "" });
 
 	// Cloudflare R2 Sync & Orders Database state
 	const [isR2Synced, setIsR2Synced] = useState<boolean>(false);
