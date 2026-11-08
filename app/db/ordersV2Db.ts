@@ -166,7 +166,8 @@ export async function createOrderInDb(
 
   const decrementedInventory: Array<{ productId: number; quantity: number }> = [];
   try {
-    const statements = input.items.map((item) => {
+    const statements: Array<ReturnType<D1DatabaseLike["prepare"]>> = [];
+    for (const item of input.items) {
       const numericProductId = Number(item.productId);
       const productId = Number.isSafeInteger(numericProductId) && numericProductId > 0 ? numericProductId : null;
       const quantity = Math.floor(Number(item.quantity));
@@ -188,7 +189,7 @@ export async function createOrderInDb(
           VALUES (?, ?, ?, 'sale', ?)
         `).bind(productId, String(item.name).slice(0, 200), -quantity, orderId));
       }
-      return db.prepare(`
+      statements.push(db.prepare(`
         INSERT INTO order_items (
           order_id, product_id, product_name, quantity, unit, unit_price_fils,
           total_price_fils, options_json
@@ -197,8 +198,8 @@ export async function createOrderInDb(
         orderId, productId, String(item.name).slice(0, 200), quantity,
         String(item.unit || "item").slice(0, 40), priceFils, priceFils * quantity,
         JSON.stringify({ packagingOption: item.packagingOption || null })
-      );
-    });
+      ));
+    }
     statements.push(db.prepare(`
       INSERT INTO order_status_history (order_id, old_status, new_status, reason)
       VALUES (?, NULL, ?, 'Order created')
