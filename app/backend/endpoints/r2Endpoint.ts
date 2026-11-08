@@ -76,7 +76,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
 
   const auth = await verifyAdminAuth(request, context);
   if (!auth.authorized) return Response.json({ success: false, error: auth.reason || "Unauthorized" }, { status: 401 });
-  if (!bucket) return Response.json({ success: false, connected: false, s3Configured: false, bucket: getBucketName(context), listError: "R2 bucket binding BUCKET is unavailable" }, { status: 503 });
+  if (!bucket) return Response.json({ success: false, connected: false, s3Configured: false, bucket: getBucketName(context), remoteObjectsCount: 0, remoteImages: [], listError: "R2 bucket binding BUCKET is unavailable" }, { status: 503 });
 
   try {
     const listing = await bucket.list({ limit: 200 });
