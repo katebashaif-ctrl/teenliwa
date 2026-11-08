@@ -250,12 +250,10 @@ export async function createOrderInDb(
   }
 
   await db.prepare(`
-    UPDATE customers SET
-      total_orders = total_orders + 1,
-      total_spent_fils = total_spent_fils + ?,
+    UPDATE customers SET total_orders = total_orders + 1,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(totalFils, customerId).run();
+  `).bind(customerId).run();
 
   const order = await getOrderById(db, orderId);
   if (!order) throw new Error("Order was saved but could not be reloaded");
@@ -273,8 +271,14 @@ export async function updateOrderStatusInDb(
   db?: D1DatabaseLike,
 ): Promise<boolean> {
   if (!db || !["pending", "processing", "shipped", "delivered", "cancelled"].includes(status)) return false;
-  const existing = await db.prepare("SELECT id, status FROM orders WHERE (CAST(id AS TEXT) = ? OR order_number = ?) AND deleted_at IS NULL LIMIT 1")
-    .bind(orderId, orderId).first<{ id: number; status: string }>();
+  const existing = await db.prepare(`
+    SELECT id, status, payment_status, payment_method, customer_id, total_fils
+    FROM orders
+    WHERE (CAST(id AS TEXT) = ? OR order_number = ?) AND deleted_at IS NULL LIMIT 1
+  `).bind(orderId, orderId).first<{
+    id: number; status: string; payment_status: string; payment_method: string;
+    customer_id: number | null; total_fils: number;
+  }>();
   if (!existing) return false;
   if (existing.status === status) return true;
 
@@ -290,6 +294,15 @@ export async function updateOrderStatusInDb(
     `).bind(status, status, existing.id),
     db.prepare("INSERT INTO order_status_history (order_id, old_status, new_status, reason) VALUES (?, ?, ?, 'Updated from CMS')").bind(existing.id, existing.status, status),
   ];
+  if (status === "delivered" &&
+      ["cod", "card_on_delivery"].includes(existing.payment_method) &&
+      existing.payment_status !== "paid" &&
+      existing.customer_id !== null) {
+    statements.push(db.prepare(`
+      UPDATE customers SET total_spent_fils = total_spent_fils + ?,
+        updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(Number(existing.total_fils), Number(existing.customer_id)));
+  }
 
   // Release reserved stock once when an order is cancelled. The previous status
   // check prevents duplicate cancellation events from restoring inventory twice.
@@ -333,10 +346,10 @@ export async function updateOrderPaymentInDb(
 ): Promise<boolean> {
   if (!db || !["paid", "failed", "pending", "cancelled"].includes(paymentStatus)) return false;
   const order = await db.prepare(`
-    SELECT id, total_fils, status FROM orders
+    SELECT id, total_fils, status, payment_status, customer_id FROM orders
     WHERE (CAST(id AS TEXT) = ? OR order_number = ?)
       AND deleted_at IS NULL LIMIT 1
-  `).bind(orderId, orderId).first<{ id: number; total_fils: number; status: string }>();
+  `).bind(orderId, orderId).first<{ id: number; total_fils: number; status: string; payment_status: string; customer_id: number | null }>();
   if (!order) return false;
 
   const providerPaymentId = details.ziinaPaymentIntentId?.trim() || null;
@@ -382,6 +395,12 @@ export async function updateOrderPaymentInDb(
     UPDATE orders SET payment_status = ?, status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(paymentDbStatus, newOrderStatus, order.id).run();
+  if (paymentDbStatus === "paid" && order.payment_status !== "paid" && order.customer_id !== null) {
+    await db.prepare(`
+      UPDATE customers SET total_spent_fils = total_spent_fils + ?,
+        updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(Number(order.total_fils), Number(order.customer_id)).run();
+  }
   return true;
 }
 
