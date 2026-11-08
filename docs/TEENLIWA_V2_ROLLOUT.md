@@ -33,6 +33,7 @@ Do not deploy the new Worker before the migration succeeds. The v2 APIs intentio
 Set secrets using Wrangler or the Cloudflare dashboard. Never add secret values to Git, D1 settings, or browser storage.
 
 ```bash
+npx wrangler secret put ADMIN_USERNAME
 npx wrangler secret put ADMIN_PASSWORD
 npx wrangler secret put ADMIN_SESSION_SECRET
 npx wrangler secret put ZIINA_API_TOKEN
@@ -42,7 +43,7 @@ npx wrangler secret put META_ACCESS_TOKEN
 npx wrangler secret put META_APP_SECRET
 ```
 
-Use a strong admin password (at least 16 characters) and a random session secret (at least 32 characters). Keep Ziina in test mode until test payments and signed webhooks have been verified.
+Use a strong admin password (at least 16 characters) and a random session secret (at least 32 characters). Keep `ZIINA_TEST_MODE=true` until test payments and signed webhooks have been verified. Change the Worker var to `false` only when you are ready for live payments.
 
 ## R2 image storage
 
