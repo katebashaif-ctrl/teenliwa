@@ -120,7 +120,12 @@ function makeOrderNumber(): string {
 }
 
 export async function createOrderInDb(
-  input: Omit<Order, "id" | "orderNumber" | "createdAt" | "status"> & { status?: Order["status"] },
+  input: Omit<Order, "id" | "orderNumber" | "createdAt" | "status"> & {
+    status?: Order["status"];
+    area?: string;
+    deliveryZoneId?: number | null;
+    deliveryZoneName?: string;
+  },
   db: D1DatabaseLike,
 ): Promise<{ order: Order; dbSaved: boolean; r2Synced: boolean; storageType: string }> {
   if (!input.customerName?.trim() || !input.customerPhone?.trim() || !input.customerAddress?.trim()) {
@@ -139,6 +144,22 @@ export async function createOrderInDb(
   const customer = await db.prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1").bind(phone).first<{ id: number }>();
   const customerId = customer?.id ?? null;
 
+  // Save each distinct delivery address under the customer's private address book.
+  const addressArea = String(input.area || "").trim().slice(0, 100);
+  await db.prepare(`
+    INSERT INTO customer_addresses (customer_id, label, emirate, area, address_line, is_default)
+    SELECT ?, 'Latest order', ?, ?, ?, 1
+    WHERE NOT EXISTS (
+      SELECT 1 FROM customer_addresses
+      WHERE customer_id = ? AND emirate = ? AND COALESCE(area, '') = ? AND address_line = ?
+    )
+  `).bind(
+    customerId, String(input.customerEmirate || "").trim().slice(0, 80), addressArea || null,
+    input.customerAddress.trim().slice(0, 700),
+    customerId, String(input.customerEmirate || "").trim().slice(0, 80), addressArea,
+    input.customerAddress.trim().slice(0, 700)
+  ).run();
+
   const orderNumber = makeOrderNumber();
   const subtotalFils = toFils(Number(input.subtotal));
   const deliveryFeeFils = toFils(Number(input.deliveryFee));
@@ -152,15 +173,17 @@ export async function createOrderInDb(
   const initialStatus = input.status || (paymentMethod === "ziina" ? "pending" : "pending");
   const inserted = await db.prepare(`
     INSERT INTO orders (
-      order_number, customer_id, customer_name, customer_phone, emirate, address_line,
+      order_number, customer_id, customer_name, customer_phone, emirate, area, address_line,
+      delivery_zone_id, delivery_zone_name,
       subtotal_fils, delivery_fee_fils, discount_fils, tax_fils, total_fils, currency,
       payment_method, payment_status, status, customer_notes, gift_note, source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'AED', ?, 'pending', ?, ?, ?, 'web_store')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'AED', ?, 'pending', ?, ?, ?, 'web_store')
     RETURNING id
   `).bind(
     orderNumber, customerId, input.customerName.trim().slice(0, 160), phone,
-    String(input.customerEmirate || "").trim().slice(0, 80),
+    String(input.customerEmirate || "").trim().slice(0, 80), addressArea || null,
     input.customerAddress.trim().slice(0, 700),
+    input.deliveryZoneId ?? null, input.deliveryZoneName || null,
     subtotalFils, deliveryFeeFils, discountFils, totalFils, paymentMethod,
     initialStatus, input.notes?.trim().slice(0, 1000) || null,
     input.giftNote?.trim().slice(0, 500) || null
@@ -370,7 +393,7 @@ export async function deleteOrderFromDb(orderId: string, db?: D1DatabaseLike): P
   `).bind(orderId, orderId).first<{ id: number }>();
   if (!existing) return false;
   const result: any = await db.prepare(`
-    UPDATE orders SET deleted_at = CURRENT_TIMESTAMP, status = 'cancelled',
+    UPDATE orders SET deleted_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL
   `).bind(existing.id).run();
   return Number(result?.meta?.changes ?? result?.meta?.rows_written ?? 0) > 0;
