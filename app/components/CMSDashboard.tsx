@@ -276,11 +276,11 @@ export const CMSDashboard: React.FC = () => {
 		setTimeout(() => setCopiedKey(null), 2000);
 	};
 
-	const handleCreateProduct = (e: React.FormEvent) => {
+	const handleCreateProduct = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!newProdName.trim()) return;
 
-		addProduct({
+		const saved = await addProduct({
 			name: newProdName,
 			nameEn: newProdNameEn || newProdName,
 			category: newProdCategory,
@@ -299,6 +299,7 @@ export const CMSDashboard: React.FC = () => {
 			badge: newProdBadge || undefined,
 			featured: true,
 		});
+		if (!saved) return;
 
 		setIsAddModalOpen(false);
 		setNewProdName("");
@@ -308,8 +309,8 @@ export const CMSDashboard: React.FC = () => {
 	const handleSaveEditProduct = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!editingProduct) return;
-		await updateProduct(editingProduct.id, editingProduct);
-		setEditingProduct(null);
+		const saved = await updateProduct(editingProduct.id, editingProduct);
+		if (saved) setEditingProduct(null);
 	};
 
 	const filteredProducts = products.filter((p) => {
