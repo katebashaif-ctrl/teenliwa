@@ -164,6 +164,7 @@ export async function createOrderInDb(
   if (!inserted?.id) throw new Error("Order insert did not return an identifier");
   const orderId = Number(inserted.id);
 
+  const decrementedInventory: Array<{ productId: number; quantity: number }> = [];
   try {
     const statements = input.items.map((item) => {
       const numericProductId = Number(item.productId);
@@ -171,6 +172,22 @@ export async function createOrderInDb(
       const quantity = Math.floor(Number(item.quantity));
       const priceFils = toFils(Number(item.price));
       if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error("Invalid order item quantity");
+      if (item.trackInventory && productId !== null) {
+        const reserved = await db.prepare(`
+          UPDATE products
+          SET stock_quantity = stock_quantity - ?,
+              is_available = CASE WHEN stock_quantity - ? <= 0 THEN 0 ELSE is_available END,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND track_inventory = 1 AND stock_quantity >= ? AND deleted_at IS NULL
+          RETURNING id
+        `).bind(quantity, quantity, productId, quantity).first<{ id: number }>();
+        if (!reserved) throw new Error("Insufficient stock for " + String(item.name));
+        decrementedInventory.push({ productId, quantity });
+        statements.push(db.prepare(`
+          INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, order_id)
+          VALUES (?, ?, ?, 'sale', ?)
+        `).bind(productId, String(item.name).slice(0, 200), -quantity, orderId));
+      }
       return db.prepare(`
         INSERT INTO order_items (
           order_id, product_id, product_name, quantity, unit, unit_price_fils,
@@ -189,6 +206,17 @@ export async function createOrderInDb(
     if (db.batch) await db.batch(statements);
     else for (const statement of statements) await statement.run();
   } catch (error) {
+    // Compensate stock reservations if any item insert or reservation failed.
+    try { await db.prepare("DELETE FROM inventory_movements WHERE order_id = ?").bind(orderId).run(); } catch {}
+    for (const entry of decrementedInventory) {
+      try {
+        await db.prepare(`
+          UPDATE products SET stock_quantity = stock_quantity + ?, is_available = 1,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).bind(entry.quantity, entry.productId).run();
+      } catch {}
+    }
     await db.prepare("DELETE FROM orders WHERE id = ?").bind(orderId).run();
     throw error;
   }
