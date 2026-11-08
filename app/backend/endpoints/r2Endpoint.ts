@@ -88,7 +88,7 @@ export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
     return Response.json({
       success: true, connected: true, s3Configured: true, bucket: getBucketName(context),
       accountId: "", endpoint: "", publicUrl: "", publicUrlConfigured: false,
-      accessKeyConfigured: true, hasSecretKey: true, remoteObjectsCount: objects.length,
+      remoteObjectsCount: objects.length,
       remoteImages, latencyMs: 0, listError: null, persistedOnDisk: false,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
