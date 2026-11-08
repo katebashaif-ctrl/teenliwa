@@ -156,6 +156,12 @@ export async function createProductInDb(
   }
   const product = await getProductById(db, String(inserted.id));
   if (!product) throw new Error("Product was inserted but could not be reloaded");
+  if (tracked && stock > 0) {
+    await db.prepare(`
+      INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, note)
+      VALUES (?, ?, ?, 'initial_stock', 'Initial stock from CMS')
+    `).bind(Number(inserted.id), product.name, stock).run();
+  }
   return { product, dbSaved: true, r2Synced: false };
 }
 
