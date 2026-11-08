@@ -321,6 +321,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				setIsAdminAuthenticated(authenticated);
 				if (authenticated) {
 					fetchOrdersFromDatabase();
+					refreshMarketingLeads();
 					fetch("/api/meta/campaigns", { credentials: "same-origin" })
 						.then((response) => response.ok ? response.json() : null)
 						.then((result) => {
@@ -429,6 +430,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			await fetchOrdersFromDatabase();
 			await refreshProductsFromServer();
 			await refreshMetaCampaigns();
+			await refreshMarketingLeads();
 			return true;
 		} catch { return false; }
 	};
@@ -895,35 +897,87 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	};
 
 	// Marketing Leads Operations
+	const refreshMarketingLeads = async (): Promise<void> => {
+		try {
+			const response = await fetch("/api/marketing/leads", { credentials: "same-origin" });
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Marketing leads could not be loaded");
+			setMarketingLeads(Array.isArray(data.leads) ? data.leads : []);
+		} catch (error) {
+			console.warn("Could not refresh marketing leads:", error);
+		}
+	};
+
 	const addMarketingLead = (leadData: Omit<MarketingLead, "id" | "createdAt">): MarketingLead => {
-		const newLead: MarketingLead = {
+		const draft: MarketingLead = {
 			...leadData,
-			id: `lead-${Date.now().toString(36)}`,
+			id: "pending-" + Date.now().toString(36),
 			createdAt: new Date().toISOString(),
 		};
-
-		setMarketingLeads((prev) => [newLead, ...prev]);
-		showToast(t("toasts.leadAdded"), `${newLead.customerName}`);
-		return newLead;
+		setMarketingLeads((previous) => [draft, ...previous]);
+		void fetch("/api/marketing/leads", {
+			method: "POST", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "create_lead", lead: leadData }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success || !data.lead) throw new Error(data.error || "Lead could not be saved");
+			setMarketingLeads((previous) => [data.lead, ...previous.filter((lead) => lead.id !== draft.id)]);
+			showToast(t("toasts.leadAdded"), data.lead.customerName);
+		}).catch(async (error) => {
+			setMarketingLeads((previous) => previous.filter((lead) => lead.id !== draft.id));
+			showToast("تعذر حفظ العميل المحتمل", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMarketingLeads();
+		});
+		return draft;
 	};
 
 	const updateLeadStatus = (id: string, status: LeadStatus) => {
-		setMarketingLeads((prev) =>
-			prev.map((l) => (l.id === id ? { ...l, leadStatus: status } : l)),
-		);
-		showToast(t("toasts.leadStatusUpdated"), `${status}`);
+		void fetch("/api/marketing/leads", {
+			method: "PATCH", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "update_status", id, status }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Lead status could not be saved");
+			setMarketingLeads((previous) => previous.map((lead) => lead.id === id ? { ...lead, leadStatus: status, status } : lead));
+			showToast(t("toasts.leadStatusUpdated"), status);
+		}).catch(async (error) => {
+			showToast("تعذر تحديث حالة العميل", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMarketingLeads();
+		});
 	};
 
 	const updateLeadScore = (id: string, score: "high" | "medium" | "low", summary?: string) => {
-		setMarketingLeads((prev) =>
-			prev.map((l) => (l.id === id ? { ...l, aiScore: score, aiSummary: summary || l.aiSummary } : l)),
-		);
-		showToast(t("toasts.leadScoreUpdated"), t("toasts.leadScoreUpdatedMsg"));
+		void fetch("/api/marketing/leads", {
+			method: "PATCH", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "update_score", id, score, summary }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Lead score could not be saved");
+			setMarketingLeads((previous) => previous.map((lead) => lead.id === id ? { ...lead, aiScore: score, aiSummary: summary || lead.aiSummary } : lead));
+			showToast(t("toasts.leadScoreUpdated"), t("toasts.leadScoreUpdatedMsg"));
+		}).catch(async (error) => {
+			showToast("تعذر تحديث تقييم العميل", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMarketingLeads();
+		});
 	};
 
 	const deleteLead = (id: string) => {
-		setMarketingLeads((prev) => prev.filter((l) => l.id !== id));
-		showToast(t("toasts.leadDeleted"), t("toasts.leadDeletedMsg"), "info");
+		void fetch("/api/marketing/leads", {
+			method: "DELETE", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "delete_lead", id }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Lead could not be archived");
+			setMarketingLeads((previous) => previous.filter((lead) => lead.id !== id));
+			showToast(t("toasts.leadDeleted"), t("toasts.leadDeletedMsg"), "info");
+		}).catch(async (error) => {
+			showToast("تعذر أرشفة العميل المحتمل", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMarketingLeads();
+		});
 	};
 
 	// Meta Config
