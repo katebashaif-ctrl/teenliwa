@@ -180,28 +180,9 @@ export const CMSDashboard: React.FC = () => {
 		{ label: "كنار كيلو ونص", url: "/images/kanar.webp" },
 	];
 
-	// Handle R2 Credentials Save & Live Test
-	const handleSaveR2Config = async (e: React.FormEvent) => {
-		e.preventDefault();
-		showToast("إعدادات R2", "لأمان مفاتيح التخزين، أضف CLOUDFLARE_R2_ACCESS_KEY_ID وCLOUDFLARE_R2_SECRET_ACCESS_KEY كـ Worker secrets من Cloudflare Dashboard. لا تحفظ المفاتيح من المتصفح.", "warning");
-	};
-
-	// Handle R2 Catalog Sync
+	// Catalogue and store settings are persisted in D1. R2 is reserved for media objects.
 	const handleSyncCatalogToR2 = async () => {
-		setIsSyncingR2(true);
-		try {
-			const success = await syncCatalogToR2(products, settings);
-			if (success) {
-				showToast("مزامنة Cloudflare R2", "تم حفظ كتالوج المتجر بنجاح في سحابة bt-liwa (data/store.json).");
-				loadR2Status();
-			} else {
-				showToast("تنبيه المزامنة", "تعذر إتمام المزامنة السحابية. تأكد من إعداد مفاتيح R2.", "warning");
-			}
-		} catch (e) {
-			showToast("خطأ في الاتصال", "تعذر الاتصال بـ Cloudflare R2", "warning");
-		} finally {
-			setIsSyncingR2(false);
-		}
+		showToast("التخزين مفصول حسب الوظيفة", "المنتجات والطلبات والإعدادات محفوظة في D1. تُستخدم R2 لصور المنتجات والوسائط فقط.", "info");
 	};
 
 	// Handle Direct R2 Image Upload (Media Library)
@@ -1100,12 +1081,12 @@ export const CMSDashboard: React.FC = () => {
 										{r2Status.connected ? (
 											<>
 												<CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-												<span>متصل ومزامن سحابياً</span>
+												<span>متصل — تخزين الصور</span>
 											</>
 										) : (
 											<>
 												<Cloud className="w-3.5 h-3.5 text-amber-600" />
-												<span>بانتظار المفتاح السري (Secret Key)</span>
+												<span>تحقق من ربط BUCKET في Worker</span>
 											</>
 										)}
 									</span>
@@ -1135,10 +1116,10 @@ export const CMSDashboard: React.FC = () => {
 								</div>
 
 								<div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E8DCCB] space-y-1">
-									<p className="text-stone-500 font-medium">حالة الكتالوج التزامني:</p>
+									<p className="text-stone-500 font-medium">مصدر بيانات المتجر:</p>
 									<p className="font-bold text-stone-800 text-[11px] flex items-center gap-1">
 										<span className={`w-2 h-2 rounded-full ${isR2Synced ? "bg-emerald-500" : "bg-amber-500"}`} />
-										<span>{isR2Synced ? "متزامن (data/store.json)" : "جاهز للمزامنة"}</span>
+										<span>{isR2Synced ? "قاعدة D1" : "D1 هي المصدر الأساسي"}</span>
 									</p>
 								</div>
 							</div>
@@ -1164,64 +1145,26 @@ export const CMSDashboard: React.FC = () => {
 								</button>
 							</div>
 
-							{/* Actions: Sync & Direct Upload */}
+							<div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-950 leading-6">
+								<strong>مصادر البيانات</strong>
+								<p>المنتجات والتصنيفات والطلبات والمدفوعات وإعدادات المتجر محفوظة في D1 v2. تخزن R2 ملفات الصور فقط ولا تُستخدم لمزامنة كتالوج أو بيانات عملاء.</p>
+							</div>
+
 							<div className="pt-2 flex flex-wrap items-center gap-3">
-								<button
-									onClick={handleSyncCatalogToR2}
-									disabled={isSyncingR2}
-									className="px-5 py-2.5 bg-[#2C2014] text-amber-200 text-xs font-bold rounded-lg hover:bg-black transition-colors flex items-center gap-2 shadow"
-								>
-									<RefreshCw className={`w-4 h-4 text-amber-400 ${isSyncingR2 ? "animate-spin" : ""}`} />
-									<span>{isSyncingR2 ? "جاري المزامنة..." : "مزامنة الكتالوج إلى R2 (data/store.json)"}</span>
-								</button>
-
-								<button
-									onClick={async () => {
-										const ok = await fetchCatalogFromR2();
-										if (ok) {
-											showToast("تم جلب الكتالوج", "تم تحديث المنتجات والبيانات مباشرة من Cloudflare R2.");
-										} else {
-											showToast("تنبيه", "لم يتم العثور على كتالوج مسبق في R2 أو المفاتيح غير مفعلة.", "warning");
-										}
-									}}
-									className="px-4 py-2.5 bg-stone-100 text-stone-800 border border-stone-300 text-xs font-bold rounded-lg hover:bg-stone-200 transition-colors flex items-center gap-2"
-								>
-									<Download className="w-4 h-4 text-stone-600" />
-									<span>جلب وتحديث المنتجات من R2</span>
-								</button>
-
 								<label className="px-5 py-2.5 bg-emerald-800 text-white text-xs font-bold rounded-lg hover:bg-emerald-900 transition-colors flex items-center gap-2 cursor-pointer shadow">
 									<UploadCloud className="w-4 h-4 text-emerald-200" />
-									<span>{isUploadingR2 ? "جاري الرفع..." : "رفع صورة محصول جديدة مباشرة إلى R2"}</span>
-									<input
-										type="file"
-										accept="image/*"
-										onChange={handleFileUpload}
-										disabled={isUploadingR2}
-										className="hidden"
-									/>
+									<span>{isUploadingR2 ? "جاري الرفع..." : "رفع صورة جديدة إلى مكتبة الوسائط"}</span>
+									<input type="file" accept="image/*" onChange={handleFileUpload} disabled={isUploadingR2} className="hidden" />
 								</label>
 							</div>
 						</div>
 
-						{/* Cloudflare R2 Credentials & Settings Form */}
-						<div className="bg-white p-6 rounded-2xl border border-[#E8DCCB] shadow-sm space-y-4">
-							<div className="flex items-center gap-2 pb-2 border-b border-stone-200">
-								<Settings className="w-4 h-4 text-stone-700" />
-								<h4 className="font-serif text-base font-bold text-[#2C2014]">
-									إعدادات ومفاتيح Cloudflare R2 (S3 API Credentials)
-								</h4>
-							</div>
-							<p className="text-xs text-stone-500 leading-relaxed">
-								تُقرأ مفاتيح R2 من Cloudflare Worker secrets فقط. لا تُدخل مفاتيح الوصول في المتصفح. اضبط CLOUDFLARE_R2_ACCESS_KEY_ID وCLOUDFLARE_R2_SECRET_ACCESS_KEY وCLOUDFLARE_ACCOUNT_ID وCLOUDFLARE_R2_BUCKET في إعدادات Worker.
-							</p>
-
-							<div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950 leading-6">
-  <strong>إعداد آمن لمفاتيح R2</strong>
-  <p>افتح Cloudflare Dashboard ثم Workers & Pages ثم teenliwa ثم Settings ثم Variables and Secrets. أضف المفاتيح كـ Secrets، ثم أعد نشر Worker.</p>
-  <p dir="ltr" className="font-mono">CLOUDFLARE_ACCOUNT_ID<br/>CLOUDFLARE_R2_ACCESS_KEY_ID<br/>CLOUDFLARE_R2_SECRET_ACCESS_KEY<br/>CLOUDFLARE_R2_BUCKET<br/>CLOUDFLARE_R2_ENDPOINT</p>
-</div>
+						<div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-xs text-amber-950 leading-6">
+							<strong>إعداد تخزين الصور الآمن</strong>
+							<p>تستخدم لوحة CMS ربط Cloudflare R2 باسم BUCKET مباشرة من Worker. لا تحفظ مفاتيح S3 أو أسرار الوصول في D1 أو localStorage أو المتصفح.</p>
+							<p dir="ltr" className="font-mono">wrangler.json → r2_buckets → binding: BUCKET</p>
 						</div>
+
 
 						{/* Cloudflare R2 Media Gallery */}
 						<div className="bg-white p-6 rounded-2xl border border-[#E8DCCB] shadow-sm space-y-4">
@@ -1235,7 +1178,7 @@ export const CMSDashboard: React.FC = () => {
 									</p>
 								</div>
 								<span className="text-xs font-bold text-[#8B5A2B] bg-[#F5EFE6] px-3 py-1 rounded-full">
-									{r2Status.remoteImages.length > 0 ? r2Status.remoteImages.length : 12} صور سحابية
+									{r2Status.remoteImages.length} صور سحابية
 								</span>
 							</div>
 
