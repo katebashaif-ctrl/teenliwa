@@ -12,8 +12,6 @@ import type {
 	McpServersConfig,
 } from "../types/store";
 import {
-	INITIAL_PRODUCTS,
-	INITIAL_ORDERS,
 	INITIAL_SETTINGS,
 	INITIAL_META_CAMPAIGNS,
 	INITIAL_LEADS,
@@ -172,8 +170,8 @@ const STORAGE_KEYS = {
 };
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-	const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
-	const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+	const [products, setProducts] = useState<Product[]>([]);
+	const [orders, setOrders] = useState<Order[]>([]);
 	const [settings, setSettings] = useState<StoreSettings>(() => {
 		if (typeof window !== "undefined") {
 			try {
@@ -286,125 +284,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		return false;
 	};
 
-	const getClientR2SecretKey = (): string => {
-		try {
-			if (typeof window !== "undefined") {
-				const saved = localStorage.getItem("liwa_r2_config");
-				if (saved) return JSON.parse(saved).secretAccessKey || "";
-			}
-		} catch {}
-		return "";
-	};
-
-	// Fetch catalog synchronously from Cloudflare R2 or local persistent storage
-	const fetchCatalogFromR2 = async (): Promise<boolean> => {
-		try {
-			const secretKey = getClientR2SecretKey();
-			const headers: HeadersInit = secretKey ? { "x-r2-secret-key": secretKey } : {};
-			const res = await fetch("/api/r2?intent=get_catalog", { headers });
-			const json = (await res.json()) as any;
-			if (json.success && json.data && Array.isArray(json.data.products) && json.data.products.length > 0) {
-				const remoteProducts = json.data.products as Product[];
-
-				// Smart merge with INITIAL_PRODUCTS so authentic products are never wiped out
-				setProducts((prev) => {
-					const baseList = prev && prev.length >= INITIAL_PRODUCTS.length ? prev : [...INITIAL_PRODUCTS];
-					const remoteMap = new Map<string, Product>();
-					remoteProducts.forEach((rp) => remoteMap.set(rp.id, rp));
-
-					const merged = baseList.map((p) => {
-						if (remoteMap.has(p.id)) {
-							const rp = remoteMap.get(p.id)!;
-							remoteMap.delete(p.id);
-							return { ...p, ...rp };
-						}
-						return p;
-					});
-					// Append any new products created in R2
-					for (const newProduct of remoteMap.values()) {
-						merged.unshift(newProduct);
-					}
-					return merged;
-				});
-
-				if (json.data.settings) {
-					setSettings((prev) => {
-						const remote = json.data.settings;
-						const merged = { ...prev, ...remote, ziinaApiKey: "" };
-						return merged;
-					});
-				}
-				if (json.fromR2) {
-					setIsR2Synced(true);
-				}
-				return true;
-			}
-		} catch (err) {
-			console.warn("Could not fetch catalog from R2 on mount:", err);
-		}
-		return false;
-	};
-
-	// Synchronize products & settings directly to Cloudflare R2
-	const syncCatalogToR2 = async (prodsToSync?: Product[], setsToSync?: StoreSettings): Promise<boolean> => {
-		try {
-			const secretKey = getClientR2SecretKey();
-			const headers: Record<string, string> = { "Content-Type": "application/json" };
-			if (secretKey) headers["x-r2-secret-key"] = secretKey;
-
-			const targetProducts = prodsToSync || products;
-			const targetSettings = setsToSync || settings;
-
-			const res = await fetch("/api/r2", {
-				method: "POST",
-				headers,
-				body: JSON.stringify({
-					intent: "sync_catalog",
-					data: {
-						products: targetProducts,
-						settings: targetSettings,
-						lastUpdated: new Date().toISOString(),
-						storeName: "Teen Liwa",
-					},
-				}),
-			});
-			const json = (await res.json()) as any;
-			if (json.success && json.r2Synced) {
-				setIsR2Synced(true);
-				return true;
-			}
-			if (json.localSynced) {
-				return true;
-			}
-		} catch (err) {
-			console.warn("Failed to sync catalog to Cloudflare R2:", err);
-		}
-		return false;
-	};
+	// D1 v2 is the only catalogue/settings source of truth; R2 is reserved for image objects.
+	const fetchCatalogFromR2 = async (): Promise<boolean> => false;
+	const syncCatalogToR2 = async (_prodsToSync?: Product[], _setsToSync?: StoreSettings): Promise<boolean> => false;
 
 
 	// Load from localStorage on client mount, then load live from R2
 	useEffect(() => {
 		setIsClient(true);
 		try {
-			const savedProducts = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-			if (savedProducts) {
-				const parsed = JSON.parse(savedProducts);
-				if (Array.isArray(parsed) && parsed.length >= INITIAL_PRODUCTS.length) {
-					setProducts(parsed);
-				} else if (Array.isArray(parsed) && parsed.length > 0) {
-					// Merge with initial products to never lose catalog items
-					const map = new Map<string, Product>();
-					parsed.forEach((p: Product) => map.set(p.id, p));
-					const merged = INITIAL_PRODUCTS.map((p) => (map.has(p.id) ? { ...p, ...map.get(p.id)! } : p));
-					for (const [id, p] of map.entries()) {
-						if (!merged.some((m) => m.id === id)) merged.unshift(p);
-					}
-					setProducts(merged);
-				}
-			}
-
-
 			const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
 			if (savedSettings) { const parsedSettings = JSON.parse(savedSettings); delete parsedSettings.ziinaApiKey; setSettings({ ...INITIAL_SETTINGS, ...parsedSettings, ziinaApiKey: "" }); }
 
@@ -443,18 +331,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			})
 			.catch(() => setIsAdminAuthenticated(false));
 
-		// Prefer the server-backed product list over static R2 merge.
+		// D1 v2 is authoritative. An empty database intentionally produces an empty storefront.
 		refreshProductsFromServer();
-		fetchCatalogFromR2();
+		fetch("/api/settings", { credentials: "same-origin" })
+			.then((res) => res.ok ? res.json() : null)
+			.then((data) => {
+				if (data?.success && data.settings) {
+					setSettings((prev) => ({ ...prev, ...data.settings, ziinaApiKey: "" }));
+				}
+			})
+			.catch((error) => console.warn("Could not load store settings from D1:", error));
 	}, []);
 
 	// Sync to localStorage
-	useEffect(() => {
-		if (!isClient) return;
-		try {
-			localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-		} catch (e) {}
-	}, [products, isClient]);
 
 	useEffect(() => {
 		if (!isClient) return;
@@ -643,11 +532,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		};
 		const updated = [newProduct, ...products];
 		setProducts(updated);
-		if (isClient) {
-			try {
-				localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(updated));
-			} catch {}
-		}
 		showToast(t("toasts.productAdded"), t("toasts.productAddedMsg"));
 
 		// Sync directly to Cloudflare R2 (non-blocking)
@@ -718,11 +602,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 		const updated = products.map((p) => (p.id === id ? { ...p, ...normalizedUpdates } : p));
 		setProducts(updated);
-		if (isClient) {
-			try {
-				localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(updated));
-			} catch {}
-		}
 		showToast(t("toasts.productUpdated"), t("toasts.productUpdatedMsg"));
 		syncCatalogToR2(updated);
 
@@ -752,11 +631,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	const deleteProduct = async (id: string) => {
 		const updated = products.filter((p) => p.id !== id);
 		setProducts(updated);
-		if (isClient) {
-			try {
-				localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(updated));
-			} catch {}
-		}
 		showToast(t("toasts.productDeleted"), t("toasts.productDeletedMsg"), "info");
 		syncCatalogToR2(updated);
 
@@ -803,11 +677,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		);
 
 		setProducts(updated);
-		if (isClient) {
-			try {
-				localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(updated));
-			} catch {}
-		}
 		showToast(
 			nextInStock ? "تم تفعيل توفر المنتج" : "تم تعطيل المنتج (قريباً)",
 			`${target.name}: ${nextInStock ? "متوفر للطلب الفوري الآن" : "غير متوفر حالياً"}`
@@ -1159,45 +1028,38 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 	// Settings & Reset
 	const updateSettings = (newSettings: Partial<StoreSettings>) => {
+		const safeNewSettings = { ...newSettings } as Partial<StoreSettings>;
+		delete (safeNewSettings as any).ziinaApiKey;
 		setSettings((prev) => {
-			const safeNewSettings = { ...newSettings } as Partial<StoreSettings>;
-			delete (safeNewSettings as any).ziinaApiKey;
 			const updated = { ...prev, ...safeNewSettings, ziinaApiKey: "" };
 			if (typeof window !== "undefined") {
 				try {
 					const persisted = { ...updated } as any;
 					delete persisted.ziinaApiKey;
 					localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(persisted));
-					localStorage.removeItem("teen_liwa_ziina_token");
-					localStorage.removeItem("teen_liwa_ziina_test_mode");
-				} catch (e) {}
+				} catch {}
 			}
-			// Persist catalog settings through the configured server-side storage binding.
-			syncCatalogToR2(products, updated);
 			return updated;
 		});
-		showToast(t("toasts.settingsSaved"), t("toasts.settingsSavedMsg"));
+		fetch("/api/settings", {
+			method: "PUT",
+			credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ settings: safeNewSettings }),
+		})
+			.then(async (res) => {
+				const data = await res.json().catch(() => ({}));
+				if (!res.ok || !data.success) {
+					showToast("Settings not saved", data.error || "Could not save settings to the database", "warning");
+					return;
+				}
+				showToast(t("toasts.settingsSaved"), t("toasts.settingsSavedMsg"));
+			})
+			.catch(() => showToast("Settings not saved", "Could not reach the settings API", "warning"));
 	};
-
 	const resetToSampleData = () => {
-		setProducts(INITIAL_PRODUCTS);
-		setOrders(INITIAL_ORDERS);
-		setSettings(INITIAL_SETTINGS);
-		setMetaCampaigns(INITIAL_META_CAMPAIGNS);
-		setMarketingLeads(INITIAL_LEADS);
-		setMetaConfig(INITIAL_META_CONFIG);
-		setCart([]);
-		if (isClient) {
-			localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-			localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-			localStorage.removeItem(STORAGE_KEYS.CART);
-			localStorage.removeItem(STORAGE_KEYS.META_CAMPAIGNS);
-			localStorage.removeItem(STORAGE_KEYS.LEADS);
-			localStorage.removeItem(STORAGE_KEYS.META_CONFIG);
-		}
-		showToast(t("toasts.dataReset"), t("toasts.dataResetMsg"));
+		showToast("Sample reset disabled", "Production catalogue and orders are stored in D1 and cannot be overwritten with demo data.", "warning");
 	};
-
 	return (
 		<StoreContext.Provider
 			value={{
