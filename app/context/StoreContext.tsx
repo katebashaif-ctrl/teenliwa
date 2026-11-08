@@ -13,8 +13,6 @@ import type {
 } from "../types/store";
 import {
 	INITIAL_SETTINGS,
-	INITIAL_META_CAMPAIGNS,
-	INITIAL_LEADS,
 	INITIAL_META_CONFIG,
 	DEFAULT_MCP_CONFIG,
 } from "../data/initialData";
@@ -221,8 +219,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	const [privacyModalTab, setPrivacyModalTab] = useState<"privacy" | "terms" | "cookies">("privacy");
 
 	// Meta Marketing API Campaigns & Leads
-	const [metaCampaigns, setMetaCampaigns] = useState<MetaCampaign[]>(INITIAL_META_CAMPAIGNS);
-	const [marketingLeads, setMarketingLeads] = useState<MarketingLead[]>(INITIAL_LEADS);
+	const [metaCampaigns, setMetaCampaigns] = useState<MetaCampaign[]>([]);
+	const [marketingLeads, setMarketingLeads] = useState<MarketingLead[]>([]);
 	const [metaConfig, setMetaConfig] = useState<MetaMarketingApiConfig>(INITIAL_META_CONFIG);
 
 	// Cloudflare R2 Sync & Orders Database state
@@ -303,14 +301,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			const savedConsent = localStorage.getItem(STORAGE_KEYS.COOKIE_CONSENT);
 			if (savedConsent) setCookieConsentState(savedConsent as CookieConsentStatus);
 
-			const savedCampaigns = localStorage.getItem(STORAGE_KEYS.META_CAMPAIGNS);
-			if (savedCampaigns) setMetaCampaigns(JSON.parse(savedCampaigns));
 
-			const savedLeads = localStorage.getItem(STORAGE_KEYS.LEADS);
-			if (savedLeads) setMarketingLeads(JSON.parse(savedLeads));
 
-			const savedConfig = localStorage.getItem(STORAGE_KEYS.META_CONFIG);
-			if (savedConfig) { const parsedConfig = JSON.parse(savedConfig); delete parsedConfig.accessToken; setMetaConfig({ ...INITIAL_META_CONFIG, ...parsedConfig, accessToken: "" }); }
 
 			const savedMcp = localStorage.getItem(STORAGE_KEYS.MCP_CONFIG);
 			if (savedMcp) {
@@ -327,7 +319,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			.then((data) => {
 				const authenticated = data.authenticated === true;
 				setIsAdminAuthenticated(authenticated);
-				if (authenticated) fetchOrdersFromDatabase();
+				if (authenticated) {
+					fetchOrdersFromDatabase();
+					fetch("/api/meta/campaigns", { credentials: "same-origin" })
+						.then((response) => response.ok ? response.json() : null)
+						.then((result) => {
+							if (result?.success) {
+								setMetaCampaigns(Array.isArray(result.campaigns) ? result.campaigns : []);
+								if (result.config) setMetaConfig({ ...INITIAL_META_CONFIG, ...result.config, accessToken: "" });
+							}
+						})
+						.catch((error) => console.warn("Meta CMS data could not be loaded:", error));
+				}
 			})
 			.catch(() => setIsAdminAuthenticated(false));
 
@@ -365,26 +368,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		} catch (e) {}
 	}, [cart, isClient]);
 
-	useEffect(() => {
-		if (!isClient) return;
-		try {
-			localStorage.setItem(STORAGE_KEYS.META_CAMPAIGNS, JSON.stringify(metaCampaigns));
-		} catch (e) {}
-	}, [metaCampaigns, isClient]);
 
-	useEffect(() => {
-		if (!isClient) return;
-		try {
-			localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(marketingLeads));
-		} catch (e) {}
-	}, [marketingLeads, isClient]);
 
-	useEffect(() => {
-		if (!isClient) return;
-		try {
-			const safeMetaConfig = { ...metaConfig } as any; delete safeMetaConfig.accessToken; localStorage.setItem(STORAGE_KEYS.META_CONFIG, JSON.stringify(safeMetaConfig));
-		} catch (e) {}
-	}, [metaConfig, isClient]);
 
 	useEffect(() => {
 		if (!isClient) return;
