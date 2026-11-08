@@ -224,6 +224,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				headers: getAdminRequestHeaders(),
 			});
 			if (res.status === 401 || res.status === 403) {
+				setIsAdminAuthenticated(false);
+				setOrders([]);
+				setMetaCampaigns([]);
+				setMarketingLeads([]);
+				setMetaConfig({ ...INITIAL_META_CONFIG, accessToken: "" });
 				setIsOrdersLoading(false);
 				return false;
 			}
@@ -798,6 +803,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (data.config) setMetaConfig({ ...INITIAL_META_CONFIG, ...data.config, accessToken: "" });
 		} catch (error) {
 			console.warn("Could not refresh Meta campaigns:", error);
+			setMetaCampaigns([]);
 		}
 	};
 
@@ -892,6 +898,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			setMarketingLeads(Array.isArray(data.leads) ? data.leads : []);
 		} catch (error) {
 			console.warn("Could not refresh marketing leads:", error);
+			setMarketingLeads([]);
 		}
 	};
 
