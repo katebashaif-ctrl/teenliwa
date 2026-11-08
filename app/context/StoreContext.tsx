@@ -403,7 +403,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		}
 	};
 	const resetMcpConfig = () => {
-		setMcpConfig(DEFAULT_MCP_CONFIG);
+		setMcpConfig(sanitizeMcpConfig(DEFAULT_MCP_CONFIG));
 		if (isClient) {
 			try {
 				localStorage.setItem(STORAGE_KEYS.MCP_CONFIG, JSON.stringify(DEFAULT_MCP_CONFIG));
