@@ -132,7 +132,7 @@ export const MetaCampaignsManager: React.FC = () => {
 		addMetaCampaign({
 			name,
 			objective,
-			status: "ACTIVE",
+			status: "PAUSED",
 			dailyBudget: Number(dailyBudget),
 			targetEmirates: selectedEmirates,
 			targetInterests: [cmsT("cms_18"), cmsT("cms_19"), cmsT("cms_20")],
@@ -176,7 +176,7 @@ export const MetaCampaignsManager: React.FC = () => {
 								</h2>
 								<span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
 									<CheckCircle2 className="w-3 h-3 text-emerald-400" />
-									<span>Graph API {metaConfig.apiVersion}  {cmsT("cms_23")}</span>
+									<span>حفظ مسودات الحملات في D1 · {metaConfig.apiVersion}</span>
 								</span>
 							</div>
 							<p className="text-xs text-blue-200/90 pt-1">
