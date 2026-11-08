@@ -1247,9 +1247,8 @@ export const CMSDashboard: React.FC = () => {
 									</div>
 									<div className="flex items-end">
 										<button
-											onClick={() => {
-												updateSettings({ metaPixelId: settingsForm.metaPixelId });
-												showToast("تم الحفظ", "تم تحديث معرّف Meta Pixel بنجاح.");
+											onClick={async () => {
+												await updateSettings({ metaPixelId: settingsForm.metaPixelId });
 											}}
 											className="px-5 py-2 bg-[#2C2014] text-amber-200 font-bold rounded-lg hover:bg-black"
 										>
@@ -1368,9 +1367,9 @@ export const CMSDashboard: React.FC = () => {
 						</div>
 
 						<form
-							onSubmit={(e) => {
+							onSubmit={async (e) => {
 								e.preventDefault();
-								updateSettings(settingsForm);
+								await updateSettings(settingsForm);
 							}}
 							className="space-y-4 text-xs"
 						>
