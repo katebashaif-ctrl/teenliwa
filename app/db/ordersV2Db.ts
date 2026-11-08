@@ -256,7 +256,15 @@ export async function updateOrderStatusInDb(
   if (existing.status === status) return true;
 
   const statements: Array<ReturnType<D1DatabaseLike["prepare"]>> = [
-    db.prepare("UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(status, existing.id),
+    db.prepare(`
+      UPDATE orders SET status = ?,
+        payment_status = CASE
+          WHEN ? = 'delivered' AND payment_method IN ('cod','card_on_delivery') THEN 'paid'
+          ELSE payment_status
+        END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(status, status, existing.id),
     db.prepare("INSERT INTO order_status_history (order_id, old_status, new_status, reason) VALUES (?, ?, ?, 'Updated from CMS')").bind(existing.id, existing.status, status),
   ];
 
