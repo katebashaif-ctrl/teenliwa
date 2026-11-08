@@ -116,6 +116,7 @@ export async function handleMetaCampaignsAction({ request, context }: ActionFunc
       }
       const campaign: MetaCampaign = {
         ...campaignInput,
+        status: "PAUSED",
         id: "camp-meta-" + crypto.randomUUID(),
         spentAED: 0, impressions: 0, clicks: 0, leadsCount: 0, conversions: 0,
         createdAt: new Date().toISOString(),
