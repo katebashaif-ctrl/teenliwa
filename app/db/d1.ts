@@ -26,7 +26,7 @@ export function toFils(amountAed: number): number {
   if (!Number.isFinite(amountAed) || amountAed < 0) {
     throw new Error("Amount must be a finite non-negative AED value");
   }
-  const fils = Math.round(amountAed * 100);
+  const fils = Math.round((amountAed + Number.EPSILON) * 100);
   if (!Number.isSafeInteger(fils)) throw new Error("Amount is outside the supported range");
   return fils;
 }
