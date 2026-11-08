@@ -6,6 +6,7 @@ export default [
   route("admin", "routes/admin.tsx"),
   route("api/admin/session", "routes/api.admin.session.ts"),
   route("api/settings", "routes/api.settings.ts"),
+  route("api/marketing/leads", "routes/api.marketing.leads.ts"),
   route("api/r2", "routes/api.r2.ts"),
   route("api/catalog/meta", "routes/api.catalog.meta.ts"),
   route("api/meta/campaigns", "routes/api.meta.campaigns.ts"),
