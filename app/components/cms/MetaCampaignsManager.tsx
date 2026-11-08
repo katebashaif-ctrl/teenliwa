@@ -1,5 +1,5 @@
 import { cmsT, cmsFormat } from "../../frontend/locales/cmsI18n";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useStore } from "../../context/StoreContext";
 import type { MetaCampaign, MetaCampaignObjective, ProductCategory } from "../../types/store";
 import {
@@ -65,6 +65,10 @@ export const MetaCampaignsManager: React.FC = () => {
 
 	// Config Form State
 	const [configForm, setConfigForm] = useState(metaConfig);
+
+	useEffect(() => {
+		setConfigForm(metaConfig);
+	}, [metaConfig]);
 
 	const emiratesList = [
 		cmsT("cms_1"),
@@ -141,29 +145,6 @@ export const MetaCampaignsManager: React.FC = () => {
 				objective === "OUTCOME_LEADS" ? cmsFormat("cms_21", [name]) : undefined,
 		});
 
-		// Call backend API to simulate/dispatch to Meta Marketing API
-		try {
-			await fetch("/api/meta/campaigns", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					intent: "create_campaign",
-					campaign: {
-						name,
-						objective,
-						status: "ACTIVE",
-						dailyBudget: Number(dailyBudget),
-						targetEmirates: selectedEmirates,
-						headline,
-						primaryText,
-						callToAction,
-						imageUrl,
-					},
-				}),
-			});
-		} catch (err) {
-			console.warn("Backend Meta API dispatch warning:", err);
-		}
 
 		setIsCreateModalOpen(false);
 		setName("");
