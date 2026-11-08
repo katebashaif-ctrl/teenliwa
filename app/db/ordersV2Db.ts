@@ -253,10 +253,35 @@ export async function updateOrderStatusInDb(
   const existing = await db.prepare("SELECT id, status FROM orders WHERE (CAST(id AS TEXT) = ? OR order_number = ?) AND deleted_at IS NULL LIMIT 1")
     .bind(orderId, orderId).first<{ id: number; status: string }>();
   if (!existing) return false;
-  const statements = [
+  if (existing.status === status) return true;
+
+  const statements: Array<ReturnType<D1DatabaseLike["prepare"]>> = [
     db.prepare("UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(status, existing.id),
     db.prepare("INSERT INTO order_status_history (order_id, old_status, new_status, reason) VALUES (?, ?, ?, 'Updated from CMS')").bind(existing.id, existing.status, status),
   ];
+
+  // Release reserved stock once when an order is cancelled. The previous status
+  // check prevents duplicate cancellation events from restoring inventory twice.
+  if (status === "cancelled" && existing.status !== "cancelled") {
+    const { results } = await db.prepare(`
+      SELECT oi.product_id, oi.product_name, oi.quantity
+      FROM order_items oi
+      INNER JOIN products p ON p.id = oi.product_id
+      WHERE oi.order_id = ? AND p.track_inventory = 1
+    `).bind(existing.id).all<{ product_id: number; product_name: string; quantity: number }>();
+    for (const item of results || []) {
+      statements.push(db.prepare(`
+        UPDATE products SET stock_quantity = stock_quantity + ?, is_available = 1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND track_inventory = 1
+      `).bind(Number(item.quantity), Number(item.product_id)));
+      statements.push(db.prepare(`
+        INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, order_id)
+        VALUES (?, ?, ?, 'cancellation', ?)
+      `).bind(Number(item.product_id), item.product_name, Number(item.quantity), existing.id));
+    }
+  }
+
   if (db.batch) await db.batch(statements);
   else for (const statement of statements) await statement.run();
   return true;
