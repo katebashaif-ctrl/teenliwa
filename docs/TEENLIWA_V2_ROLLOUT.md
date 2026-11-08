@@ -43,7 +43,7 @@ npx wrangler secret put META_ACCESS_TOKEN
 npx wrangler secret put META_APP_SECRET
 ```
 
-Use a strong admin password (at least 16 characters) and a random session secret (at least 32 characters). Keep `ZIINA_TEST_MODE=true` until test payments and signed webhooks have been verified. Change the Worker var to `false` only when you are ready for live payments.
+The current CMS login is a single administrator configured with Worker secrets and signed, short-lived HttpOnly cookies. The `admin_users`, `admin_sessions`, and `cms_audit_logs` tables are reserved for a future multi-admin/role-management rollout and are not yet used by the login flow.\n\nUse a strong admin password (at least 16 characters) and a random session secret (at least 32 characters). Keep `ZIINA_TEST_MODE=true` until test payments and signed webhooks have been verified. Change the Worker var to `false` only when you are ready for live payments.
 
 ## R2 image storage
 
