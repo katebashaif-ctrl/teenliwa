@@ -63,7 +63,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
     }
     if (intent === "update_product" || method === "PATCH") {
       const { id, updates } = body;
-      if (!/^\\d+$/.test(String(id || "")) || !updates || typeof updates !== "object" || Array.isArray(updates)) {
+      if (!/^\d+$/.test(String(id || "")) || !updates || typeof updates !== "object" || Array.isArray(updates)) {
         return Response.json({ success: false, error: "A numeric product id and updates are required" }, { status: 400, headers: NO_STORE_HEADERS });
       }
       const result = await updateProductInDb(String(id), updates, db);
@@ -72,7 +72,7 @@ export async function handleProductsAction({ request, context }: ActionFunctionA
     }
     if (intent === "delete_product" || method === "DELETE") {
       const id = body.id || body.productId;
-      if (!/^\\d+$/.test(String(id || ""))) return Response.json({ success: false, error: "Numeric product id required" }, { status: 400, headers: NO_STORE_HEADERS });
+      if (!/^\d+$/.test(String(id || ""))) return Response.json({ success: false, error: "Numeric product id required" }, { status: 400, headers: NO_STORE_HEADERS });
       const result = await deleteProductFromDb(String(id), db);
       if (!result.deleted) return Response.json({ success: false, error: "Product not found" }, { status: 404, headers: NO_STORE_HEADERS });
       return Response.json({ success: true, ...result }, { headers: NO_STORE_HEADERS });
