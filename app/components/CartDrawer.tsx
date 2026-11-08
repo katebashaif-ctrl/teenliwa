@@ -114,9 +114,17 @@ export const CartDrawer: React.FC = () => {
 			discount: 0,
 			total: grandTotal,
 			paymentMethod,
-			paymentStatus: paymentMethod === "ziina" ? "pending" : "pending",
+			paymentStatus: "pending",
+		}).catch((error: unknown) => {
+			showToast(
+				"تعذر حفظ الطلب",
+				error instanceof Error ? error.message : "حدث خطأ أثناء حفظ الطلب. حاول مرة أخرى.",
+				"warning",
+			);
+			setIsSubmitting(false);
+			return null;
 		});
-
+		if (!newOrder) return;
 		// 1. If Ziina Payment Gateway selected: initiate Ziina Payment Intent and redirect
 		if (paymentMethod === "ziina") {
 			setZiinaRedirecting(true);
