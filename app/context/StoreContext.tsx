@@ -152,6 +152,36 @@ interface StoreContextType {
 	removeToast: (id: string) => void;
 }
 
+const SENSITIVE_MCP_HEADER_NAMES = new Set([
+	"authorization",
+	"proxy-authorization",
+	"x-api-key",
+	"api-key",
+	"x-auth-token",
+]);
+
+function sanitizeMcpConfig(config: McpServersConfig): McpServersConfig {
+	const servers = Object.fromEntries(
+		Object.entries(config?.mcpServers || {}).map(([name, server]) => {
+			const headers = Object.fromEntries(
+				Object.entries(server.headers || {}).filter(([header]) =>
+					!SENSITIVE_MCP_HEADER_NAMES.has(header.toLowerCase()),
+				),
+			);
+			return [name, { ...server, headers }];
+		}),
+	);
+	return { mcpServers: servers as McpServersConfig["mcpServers"] };
+}
+
+function hasSensitiveMcpHeaders(config: McpServersConfig): boolean {
+	return Object.values(config?.mcpServers || {}).some((server) =>
+		Object.keys(server.headers || {}).some((header) =>
+			SENSITIVE_MCP_HEADER_NAMES.has(header.toLowerCase()),
+		),
+	);
+}
+
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
@@ -171,7 +201,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	const [products, setProducts] = useState<Product[]>([]);
 	const [orders, setOrders] = useState<Order[]>([]);
 	const [settings, setSettings] = useState<StoreSettings>({ ...INITIAL_SETTINGS, ziinaApiKey: "", ziinaWebhookSecret: "" });
-	const [mcpConfig, setMcpConfig] = useState<McpServersConfig>(DEFAULT_MCP_CONFIG);
+	const [mcpConfig, setMcpConfig] = useState<McpServersConfig>(() => sanitizeMcpConfig(DEFAULT_MCP_CONFIG));
 	const [cart, setCart] = useState<CartItem[]>([]);
 	const [currentView, setCurrentView] = useState<"store" | "cms">("store");
 	const [cmsTab, setCmsTab] = useState<CMSTabType>("overview");
@@ -294,7 +324,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			const savedMcp = localStorage.getItem(STORAGE_KEYS.MCP_CONFIG);
 			if (savedMcp) {
 				try {
-					setMcpConfig(JSON.parse(savedMcp));
+					setMcpConfig(sanitizeMcpConfig(JSON.parse(savedMcp)));
 				} catch (e) {}
 			}
 		} catch (e) {
@@ -356,20 +386,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	useEffect(() => {
 		if (!isClient) return;
 		try {
-			localStorage.setItem(STORAGE_KEYS.MCP_CONFIG, JSON.stringify(mcpConfig));
+			localStorage.setItem(STORAGE_KEYS.MCP_CONFIG, JSON.stringify(sanitizeMcpConfig(mcpConfig)));
 		} catch (e) {}
 	}, [mcpConfig, isClient]);
 
-	const updateMcpConfig = (newConfig: McpServersConfig) => {
-		setMcpConfig(newConfig);
-		if (isClient) {
-			try {
-				localStorage.setItem(STORAGE_KEYS.MCP_CONFIG, JSON.stringify(newConfig));
-			} catch (e) {}
+	const updateMcpConfig = (config: McpServersConfig) => {
+		const credentialsRemoved = hasSensitiveMcpHeaders(config);
+		const safeConfig = sanitizeMcpConfig(config);
+		setMcpConfig(safeConfig);
+		if (credentialsRemoved) {
+			showToast(
+				"معلومات المصادقة غير محفوظة في المتصفح",
+				"ضع رموز MCP في أسرار Cloudflare Worker، واترك هنا عنوان الخادم والإعدادات غير الحساسة فقط.",
+				"warning",
+			);
 		}
-		showToast(t("toasts.mcpUpdated"), t("toasts.mcpUpdatedMsg"));
 	};
-
 	const resetMcpConfig = () => {
 		setMcpConfig(DEFAULT_MCP_CONFIG);
 		if (isClient) {
