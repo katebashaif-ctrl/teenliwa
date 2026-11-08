@@ -103,7 +103,7 @@ const listAdCampaignsTool: FunctionDeclaration = {
 
 const createAdCampaignTool: FunctionDeclaration = {
   name: "create_ad_campaign",
-  description: "Create and launch new ad campaign on Meta Ads",
+  description: "Save a paused Meta campaign draft in the CMS. This does not publish ads or spend budget.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -128,7 +128,7 @@ const createAdCampaignTool: FunctionDeclaration = {
 
 const toggleCampaignStatusTool: FunctionDeclaration = {
   name: "toggle_campaign_status",
-  description: "Toggle campaign status between ACTIVE and PAUSED",
+  description: "Update the stored status of a CMS campaign draft. This does not publish or pause ads on Meta.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -141,7 +141,7 @@ const toggleCampaignStatusTool: FunctionDeclaration = {
 
 const updateCampaignBudgetTool: FunctionDeclaration = {
   name: "update_campaign_budget",
-  description: "Update daily budget of an ad campaign",
+  description: "Update the proposed daily budget for a saved campaign draft. This does not change a live Meta Ads budget.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -324,7 +324,7 @@ export async function handleAiAgentAction({ request, context }: ActionFunctionAr
         };
         await d1.prepare("INSERT INTO meta_campaigns (campaign_id, name, status, daily_budget_fils, campaign_json) VALUES (?, ?, ?, ?, ?)")
           .bind(newCampaign.id, newCampaign.name, newCampaign.status, toFils(budget), JSON.stringify(newCampaign)).run();
-        return { success: true, campaign: newCampaign, message: `${aiStrings.agent.campaignLaunched} (${newCampaign.name} - ${newCampaign.dailyBudget} AED)` };
+        return { success: true, campaign: newCampaign, message: "Campaign draft saved as PAUSED. It has not been published to Meta Ads." };
       }
 
       if (name === "toggle_campaign_status") {
