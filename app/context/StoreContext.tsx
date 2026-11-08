@@ -428,6 +428,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			showToast(t("toasts.welcomeAdmin"), t("toasts.welcomeAdminMsg"));
 			await fetchOrdersFromDatabase();
 			await refreshProductsFromServer();
+			await refreshMetaCampaigns();
 			return true;
 		} catch { return false; }
 	};
@@ -799,57 +800,98 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		}
 	};
 
-	// Meta Campaign Operations
+	const refreshMetaCampaigns = async (): Promise<void> => {
+		try {
+			const response = await fetch("/api/meta/campaigns", { credentials: "same-origin" });
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Meta campaigns could not be loaded");
+			setMetaCampaigns(Array.isArray(data.campaigns) ? data.campaigns : []);
+			if (data.config) setMetaConfig({ ...INITIAL_META_CONFIG, ...data.config, accessToken: "" });
+		} catch (error) {
+			console.warn("Could not refresh Meta campaigns:", error);
+		}
+	};
+
+	// Meta campaign operations are persisted in D1. The browser state is only a view cache.
 	const addMetaCampaign = (
-		campaignData: Omit<
-			MetaCampaign,
-			"id" | "spentAED" | "impressions" | "clicks" | "leadsCount" | "conversions" | "createdAt"
-		>,
+		campaignData: Omit<MetaCampaign, "id" | "spentAED" | "impressions" | "clicks" | "leadsCount" | "conversions" | "createdAt">,
 	): MetaCampaign => {
-		const newCampaign: MetaCampaign = {
+		const draft: MetaCampaign = {
 			...campaignData,
-			id: `camp-meta-${Date.now().toString(36)}`,
-			spentAED: 0,
-			impressions: 0,
-			clicks: 0,
-			leadsCount: 0,
-			conversions: 0,
+			id: "pending-" + Date.now().toString(36),
+			spentAED: 0, impressions: 0, clicks: 0, leadsCount: 0, conversions: 0,
 			createdAt: new Date().toISOString(),
 		};
-
-		setMetaCampaigns((prev) => [newCampaign, ...prev]);
-		showToast(t("toasts.campaignAdded"), `${newCampaign.name}`);
-		return newCampaign;
+		setMetaCampaigns((previous) => [draft, ...previous]);
+		void (async () => {
+			try {
+				const response = await fetch("/api/meta/campaigns", {
+					method: "POST", credentials: "same-origin",
+					headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+					body: JSON.stringify({ intent: "create_campaign", campaign: campaignData }),
+				});
+				const data = await response.json() as any;
+				if (!response.ok || !data.success || !data.campaign) throw new Error(data.error || "Campaign could not be saved");
+				setMetaCampaigns((previous) => [data.campaign, ...previous.filter((item) => item.id !== draft.id)]);
+				showToast(t("toasts.campaignAdded"), data.campaign.name);
+			} catch (error) {
+				setMetaCampaigns((previous) => previous.filter((item) => item.id !== draft.id));
+				showToast("تعذر حفظ الحملة", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+				await refreshMetaCampaigns();
+			}
+		})();
+		return draft;
 	};
 
 	const toggleCampaignStatus = (id: string) => {
-		setMetaCampaigns((prev) =>
-			prev.map((c) =>
-				c.id === id
-					? {
-							...c,
-							status: c.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
-						}
-					: c,
-			),
-		);
-		const target = metaCampaigns.find((c) => c.id === id);
-		showToast(
-			t("toasts.campaignStatus"),
-			`${target?.status === "ACTIVE" ? "PAUSED" : "ACTIVE"}`
-		);
+		const target = metaCampaigns.find((campaign) => campaign.id === id);
+		if (!target) return;
+		const status = target.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+		setMetaCampaigns((previous) => previous.map((campaign) => campaign.id === id ? { ...campaign, status } : campaign));
+		void fetch("/api/meta/campaigns", {
+			method: "POST", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "update_status", campaignId: id, status }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Campaign status update failed");
+			showToast(t("toasts.campaignStatus"), status);
+		}).catch(async (error) => {
+			showToast("تعذر تحديث الحملة", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMetaCampaigns();
+		});
 	};
 
 	const updateCampaignBudget = (id: string, budget: number) => {
-		setMetaCampaigns((prev) =>
-			prev.map((c) => (c.id === id ? { ...c, dailyBudget: budget } : c)),
-		);
-		showToast(t("toasts.budgetUpdated"), `${budget} AED`);
+		setMetaCampaigns((previous) => previous.map((campaign) => campaign.id === id ? { ...campaign, dailyBudget: budget } : campaign));
+		void fetch("/api/meta/campaigns", {
+			method: "POST", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "update_budget", campaignId: id, dailyBudget: budget }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Campaign budget update failed");
+			showToast(t("toasts.budgetUpdated"), `${budget} AED`);
+		}).catch(async (error) => {
+			showToast("تعذر تحديث الميزانية", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMetaCampaigns();
+		});
 	};
 
 	const deleteCampaign = (id: string) => {
-		setMetaCampaigns((prev) => prev.filter((c) => c.id !== id));
-		showToast(t("toasts.campaignDeleted"), t("toasts.campaignDeletedMsg"), "info");
+		void fetch("/api/meta/campaigns", {
+			method: "POST", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "delete_campaign", campaignId: id }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Campaign deletion failed");
+			setMetaCampaigns((previous) => previous.filter((campaign) => campaign.id !== id));
+			showToast(t("toasts.campaignDeleted"), t("toasts.campaignDeletedMsg"), "info");
+		}).catch(async (error) => {
+			showToast("تعذر حذف الحملة", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await refreshMetaCampaigns();
+		});
 	};
 
 	// Marketing Leads Operations
@@ -889,11 +931,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		const safeConfig = { ...newConfig } as Partial<MetaMarketingApiConfig>;
 		const suppliedToken = Boolean(String(safeConfig.accessToken || "").trim());
 		delete (safeConfig as any).accessToken;
-		setMetaConfig((prev) => ({ ...prev, ...safeConfig, accessToken: "" }));
-		if (suppliedToken) showToast("Meta API credentials", "The access token is not saved in the browser. Configure META_ACCESS_TOKEN as a Cloudflare Worker secret.", "warning");
-		else showToast(t("toasts.metaSettings"), t("toasts.metaSettingsMsg"));
+		void fetch("/api/meta/campaigns", {
+			method: "POST", credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "update_config", config: safeConfig }),
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Meta settings could not be saved");
+			setMetaConfig({ ...INITIAL_META_CONFIG, ...data.config, accessToken: "" });
+			showToast(t("toasts.metaSettings"), t("toasts.metaSettingsMsg"));
+			if (suppliedToken) showToast("Meta API credentials", "Access tokens must be configured as META_ACCESS_TOKEN in Cloudflare Worker secrets.", "warning");
+		}).catch((error) => showToast("تعذر حفظ إعدادات Meta", error instanceof Error ? error.message : "حاول مرة أخرى", "warning"));
 	};
-
 	// Settings & Reset
 	const updateSettings = (newSettings: Partial<StoreSettings>) => {
 		const safeNewSettings = { ...newSettings } as Partial<StoreSettings>;
