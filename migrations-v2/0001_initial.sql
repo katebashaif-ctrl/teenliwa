@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS payments (
   currency TEXT NOT NULL DEFAULT 'AED' CHECK (length(currency) = 3),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','paid','failed','cancelled','refunded','partially_refunded')),
   redirect_url TEXT,
+  card_brand TEXT,
+  card_last_four TEXT,
   failure_code TEXT,
   failure_message TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
