@@ -170,19 +170,7 @@ const STORAGE_KEYS = {
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 	const [products, setProducts] = useState<Product[]>([]);
 	const [orders, setOrders] = useState<Order[]>([]);
-	const [settings, setSettings] = useState<StoreSettings>(() => {
-		if (typeof window !== "undefined") {
-			try {
-				const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-				if (saved) {
-					const parsed = JSON.parse(saved);
-					delete parsed.ziinaApiKey;
-					return { ...INITIAL_SETTINGS, ...parsed, ziinaApiKey: "" };
-				}
-			} catch (e) {}
-		}
-		return INITIAL_SETTINGS;
-	});
+	const [settings, setSettings] = useState<StoreSettings>(INITIAL_SETTINGS);
 	const [mcpConfig, setMcpConfig] = useState<McpServersConfig>(DEFAULT_MCP_CONFIG);
 	const [cart, setCart] = useState<CartItem[]>([]);
 	const [currentView, setCurrentView] = useState<"store" | "cms">("store");
@@ -291,7 +279,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	useEffect(() => {
 		setIsClient(true);
 		try {
-			const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
 			if (savedSettings) { const parsedSettings = JSON.parse(savedSettings); delete parsedSettings.ziinaApiKey; setSettings({ ...INITIAL_SETTINGS, ...parsedSettings, ziinaApiKey: "" }); }
 
 			const savedCart = localStorage.getItem(STORAGE_KEYS.CART);
@@ -355,12 +342,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		} catch (e) {}
 	}, [orders, isClient]);
 
-	useEffect(() => {
-		if (!isClient) return;
-		try {
-			const safeSettings = { ...settings } as any; delete safeSettings.ziinaApiKey; localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(safeSettings));
-		} catch (e) {}
-	}, [settings, isClient]);
 
 	useEffect(() => {
 		if (!isClient) return;
@@ -1001,34 +982,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	const updateSettings = (newSettings: Partial<StoreSettings>) => {
 		const safeNewSettings = { ...newSettings } as Partial<StoreSettings>;
 		delete (safeNewSettings as any).ziinaApiKey;
-		setSettings((prev) => {
-			const updated = { ...prev, ...safeNewSettings, ziinaApiKey: "" };
-			if (typeof window !== "undefined") {
-				try {
-					const persisted = { ...updated } as any;
-					delete persisted.ziinaApiKey;
-					localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(persisted));
-				} catch {}
-			}
-			return updated;
-		});
-		fetch("/api/settings", {
+		delete (safeNewSettings as any).ziinaWebhookSecret;
+		void fetch("/api/settings", {
 			method: "PUT",
 			credentials: "same-origin",
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ settings: safeNewSettings }),
-		})
-			.then(async (res) => {
-				const data = await res.json().catch(() => ({}));
-				if (!res.ok || !data.success) {
-					showToast("Settings not saved", data.error || "Could not save settings to the database", "warning");
-					return;
-				}
-				showToast(t("toasts.settingsSaved"), t("toasts.settingsSavedMsg"));
-			})
-			.catch(() => showToast("Settings not saved", "Could not reach the settings API", "warning"));
-	};
-	const resetToSampleData = () => {
+		}).then(async (response) => {
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || "Store settings could not be saved");
+			setSettings((previous) => ({ ...previous, ...safeNewSettings, ziinaApiKey: "" }));
+			showToast(t("toasts.settingsSaved"), t("toasts.settingsSavedMsg"));
+		}).catch((error) => {
+			showToast("تعذر حفظ الإعدادات", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+		});
+	};	const resetToSampleData = () => {
 		showToast("Sample reset disabled", "Production catalogue and orders are stored in D1 and cannot be overwritten with demo data.", "warning");
 	};
 	return (
