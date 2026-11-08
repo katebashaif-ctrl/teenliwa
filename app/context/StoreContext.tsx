@@ -496,217 +496,131 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	};
 
 	// Product mutations with synchronous Cloudflare R2 storage
+	const uploadProductImage = async (image: string, imageName: string): Promise<string> => {
+		if (!image.startsWith("data:image/")) return image;
+		const response = await fetch("/api/r2", {
+			method: "POST",
+			credentials: "same-origin",
+			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+			body: JSON.stringify({ intent: "upload_base64", imageBase64: image, imageName }),
+		});
+		const data = await response.json() as any;
+		if (!response.ok || !data.success || !data.url) throw new Error(data.error || "Product image upload failed");
+		return data.url;
+	};
+
 	const addProduct = async (productData: Omit<Product, "id">) => {
-		const newId = `prod-${Date.now().toString(36)}`;
-		let finalImage = productData.image;
-
-		// Ensure that if the image was base64, it's uploaded to Cloudflare R2
-		if (finalImage && finalImage.startsWith("data:image/")) {
-			try {
-				const uploadRes = await fetch("/api/r2", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						intent: "upload_base64",
-						imageBase64: finalImage,
-						imageName: productData.nameEn || productData.name || "product",
-					}),
-				});
-				const uploadData = (await uploadRes.json()) as any;
-				if (uploadData.success && uploadData.url) {
-					finalImage = uploadData.url;
-				}
-			} catch (err) {
-				console.warn("Could not upload product image to R2:", err);
-			}
-		}
-
-		const inStock = productData.inStock !== false;
-		const newProduct: Product = {
-			...productData,
-			image: finalImage,
-			id: newId,
-			inStock,
-			disabled: inStock ? 0 : 1,
-			disabledTxt: inStock ? (productData.disabledTxt || "متوفر") : (productData.disabledTxt || "قريباً"),
-		};
-		const updated = [newProduct, ...products];
-		setProducts(updated);
-		showToast(t("toasts.productAdded"), t("toasts.productAddedMsg"));
-
-		// Sync directly to Cloudflare R2 (non-blocking)
-		syncCatalogToR2(updated);
-
-		// Synchronize to backend /api/products and re-sync from server state
 		try {
-			const res = await fetch("/api/products", {
+			const image = await uploadProductImage(productData.image || "", productData.nameEn || productData.name || "product");
+			const product: Omit<Product, "id"> = {
+				...productData,
+				image,
+				inStock: productData.inStock !== false,
+				trackInventory: productData.trackInventory ?? productData.stockQuantity !== undefined,
+			};
+			const response = await fetch("/api/products", {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					...getAdminRequestHeaders(),
-				},
-				body: JSON.stringify({
-					intent: "create_product",
-					product: newProduct,
-				}),
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+				body: JSON.stringify({ intent: "create_product", product }),
 			});
-			const json = (await res.json()) as any;
-			if (json.success) {
-				await refreshProductsFromServer();
-			}
-		} catch (e) {
-			console.warn("Backend create product sync error:", e);
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Product could not be saved");
+			await refreshProductsFromServer();
+			showToast(t("toasts.productAdded"), t("toasts.productAddedMsg"));
+		} catch (error) {
+			await refreshProductsFromServer();
+			showToast("تعذر حفظ المنتج", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			throw error;
 		}
 	};
 
 	const updateProduct = async (id: string, updates: Partial<Product>) => {
-		const normalizedUpdates: Partial<Product> = { ...updates };
-
-		// If updated image is base64, store permanently in Cloudflare R2
-		if (normalizedUpdates.image && normalizedUpdates.image.startsWith("data:image/")) {
-			try {
-				const uploadRes = await fetch("/api/r2", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						intent: "upload_base64",
-						imageBase64: normalizedUpdates.image,
-						imageName: normalizedUpdates.nameEn || normalizedUpdates.name || id,
-					}),
-				});
-				const uploadData = (await uploadRes.json()) as any;
-				if (uploadData.success && uploadData.url) {
-					normalizedUpdates.image = uploadData.url;
-				}
-			} catch (err) {
-				console.warn("Could not upload updated product image to R2:", err);
-			}
-		}
-
-		// Keep inStock, disabled, and disabledTxt in perfect sync
-		if (updates.inStock !== undefined && updates.disabled === undefined) {
-			normalizedUpdates.disabled = updates.inStock ? 0 : 1;
-			if (updates.inStock && (!updates.disabledTxt || updates.disabledTxt === "قريباً")) {
-				normalizedUpdates.disabledTxt = "متوفر";
-			} else if (!updates.inStock && (!updates.disabledTxt || updates.disabledTxt === "متوفر")) {
-				normalizedUpdates.disabledTxt = "قريباً";
-			}
-		} else if (updates.disabled !== undefined && updates.inStock === undefined) {
-			normalizedUpdates.inStock = updates.disabled === 0;
-			if (updates.disabled === 0 && (!updates.disabledTxt || updates.disabledTxt === "قريباً")) {
-				normalizedUpdates.disabledTxt = "متوفر";
-			} else if (updates.disabled === 1 && (!updates.disabledTxt || updates.disabledTxt === "متوفر")) {
-				normalizedUpdates.disabledTxt = "قريباً";
-			}
-		}
-
-		const updated = products.map((p) => (p.id === id ? { ...p, ...normalizedUpdates } : p));
-		setProducts(updated);
-		showToast(t("toasts.productUpdated"), t("toasts.productUpdatedMsg"));
-		syncCatalogToR2(updated);
-
-		// Synchronize to backend /api/products and refresh from persisted server state
 		try {
-			const res = await fetch("/api/products", {
-				method: "PATCH",
-				headers: {
-					"Content-Type": "application/json",
-					...getAdminRequestHeaders(),
-				},
-				body: JSON.stringify({
-					intent: "update_product",
-					id,
-					updates: normalizedUpdates,
-				}),
-			});
-			const json = (await res.json()) as any;
-			if (json.success) {
-				await refreshProductsFromServer();
+			const normalizedUpdates: Partial<Product> = { ...updates };
+			if (normalizedUpdates.image) {
+				normalizedUpdates.image = await uploadProductImage(
+					normalizedUpdates.image,
+					normalizedUpdates.nameEn || normalizedUpdates.name || id,
+				);
 			}
-		} catch (e) {
-			console.warn("Backend update product sync error:", e);
+			if (updates.inStock !== undefined && updates.disabled === undefined) {
+				normalizedUpdates.disabled = updates.inStock ? 0 : 1;
+				normalizedUpdates.disabledTxt = updates.inStock ? "متوفر" : "قريباً";
+			} else if (updates.disabled !== undefined && updates.inStock === undefined) {
+				normalizedUpdates.inStock = updates.disabled === 0;
+				normalizedUpdates.disabledTxt = updates.disabled === 0 ? "متوفر" : "قريباً";
+			}
+			const response = await fetch("/api/products", {
+				method: "PATCH",
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+				body: JSON.stringify({ intent: "update_product", id, updates: normalizedUpdates }),
+			});
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Product changes could not be saved");
+			await refreshProductsFromServer();
+			showToast(t("toasts.productUpdated"), t("toasts.productUpdatedMsg"));
+		} catch (error) {
+			await refreshProductsFromServer();
+			showToast("تعذر تحديث المنتج", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			throw error;
 		}
 	};
 
 	const deleteProduct = async (id: string) => {
-		const updated = products.filter((p) => p.id !== id);
-		setProducts(updated);
-		showToast(t("toasts.productDeleted"), t("toasts.productDeletedMsg"), "info");
-		syncCatalogToR2(updated);
-
 		try {
-			const res = await fetch("/api/products", {
+			const response = await fetch("/api/products", {
 				method: "DELETE",
-				headers: {
-					"Content-Type": "application/json",
-					...getAdminRequestHeaders(),
-				},
-				body: JSON.stringify({
-					intent: "delete_product",
-					id,
-				}),
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+				body: JSON.stringify({ intent: "delete_product", id }),
 			});
-			const json = (await res.json()) as any;
-			if (json.success) {
-				await refreshProductsFromServer();
-			}
-		} catch (e) {
-			console.warn("Backend delete product sync error:", e);
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Product could not be archived");
+			await refreshProductsFromServer();
+			showToast(t("toasts.productDeleted"), t("toasts.productDeletedMsg"), "info");
+		} catch (error) {
+			await refreshProductsFromServer();
+			showToast("تعذر حذف المنتج", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			throw error;
 		}
 	};
 
 	const toggleProductStock = async (id: string) => {
-		const target = products.find((p) => p.id === id);
+		const target = products.find((product) => product.id === id);
 		if (!target) return;
-
-		const nextInStock = !target.inStock;
-		const nextDisabled = nextInStock ? 0 : 1;
-		const nextDisabledTxt = nextInStock ? "متوفر" : "قريباً";
-		const nextStockQty = nextInStock ? (target.stockQuantity && target.stockQuantity > 0 ? target.stockQuantity : 25) : 0;
-
-		const updated = products.map((p) =>
-			p.id === id
-				? {
-						...p,
-						inStock: nextInStock,
-						disabled: nextDisabled,
-						disabledTxt: nextDisabledTxt,
-						stockQuantity: nextStockQty,
-					  }
-				: p
-		);
-
-		setProducts(updated);
-		showToast(
-			nextInStock ? "تم تفعيل توفر المنتج" : "تم تعطيل المنتج (قريباً)",
-			`${target.name}: ${nextInStock ? "متوفر للطلب الفوري الآن" : "غير متوفر حالياً"}`
-		);
-		syncCatalogToR2(updated);
-
 		try {
-			const res = await fetch("/api/products", {
+			const nextInStock = !target.inStock;
+			const nextStockQty = nextInStock
+				? (target.stockQuantity && target.stockQuantity > 0 ? target.stockQuantity : 25)
+				: 0;
+			const response = await fetch("/api/products", {
 				method: "PATCH",
-				headers: {
-					"Content-Type": "application/json",
-					...getAdminRequestHeaders(),
-				},
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 				body: JSON.stringify({
 					intent: "update_product",
 					id,
 					updates: {
 						inStock: nextInStock,
-						disabled: nextDisabled,
-						disabledTxt: nextDisabledTxt,
+						disabled: nextInStock ? 0 : 1,
+						disabledTxt: nextInStock ? "متوفر" : "قريباً",
 						stockQuantity: nextStockQty,
+						trackInventory: true,
 					},
 				}),
 			});
-			const json = (await res.json()) as any;
-			if (json.success) {
-				await refreshProductsFromServer();
-			}
-		} catch (e) {
-			console.warn("Backend products toggle sync error:", e);
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Stock status could not be saved");
+			await refreshProductsFromServer();
+			showToast(
+				nextInStock ? "تم تفعيل توفر المنتج" : "تم تعطيل المنتج",
+				`${target.name}: ${nextInStock ? "متوفر للطلب" : "غير متوفر حالياً"}`,
+			);
+		} catch (error) {
+			await refreshProductsFromServer();
+			showToast("تعذر تحديث المخزون", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
 		}
 	};
 
