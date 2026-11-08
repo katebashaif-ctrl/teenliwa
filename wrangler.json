@@ -18,7 +18,7 @@
   ],
   "d1_databases": [
     {
-      "binding": "teenliwa-v2",
+      "binding": "TEENLIWA_V2",
       "database_name": "teenliwa-v2",
       "database_id": "7912cd75-0a35-4bdc-9aa0-6679ca80d20d",
       "migrations_dir": "./migrations-v2"
