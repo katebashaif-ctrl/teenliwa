@@ -253,16 +253,20 @@ CREATE TABLE IF NOT EXISTS marketing_leads (
   customer_name TEXT NOT NULL,
   phone TEXT NOT NULL,
   emirate TEXT,
+  city TEXT,
   source_campaign TEXT,
   interested_product TEXT,
+  interested_products_json TEXT,
   quantity_estimated TEXT,
   budget_fils INTEGER CHECK (budget_fils IS NULL OR budget_fils >= 0),
+  total_estimated_value_fils INTEGER CHECK (total_estimated_value_fils IS NULL OR total_estimated_value_fils >= 0),
   lead_status TEXT NOT NULL DEFAULT 'new' CHECK (lead_status IN ('new','contacted','qualified','won','lost')),
   ai_score TEXT CHECK (ai_score IS NULL OR ai_score IN ('high','medium','low')),
   ai_summary TEXT,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS cms_audit_logs (
