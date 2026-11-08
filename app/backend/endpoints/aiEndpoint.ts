@@ -357,17 +357,17 @@ export async function handleAiAgentAction({ request, context }: ActionFunctionAr
           INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
           VALUES ('bannerNotice', ?, 1, CURRENT_TIMESTAMP)
           ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, is_public = 1, updated_at = CURRENT_TIMESTAMP
-        `).bind(JSON.stringify(args.bannerNotice.slice(0, 500)));
+        `).bind(JSON.stringify(args.bannerNotice.slice(0, 500))));
         if (Number.isFinite(Number(args.freeDeliveryThreshold)) && Number(args.freeDeliveryThreshold) >= 0) updates.push(d1.prepare(`
           INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
           VALUES ('freeDeliveryThreshold', ?, 1, CURRENT_TIMESTAMP)
           ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, is_public = 1, updated_at = CURRENT_TIMESTAMP
-        `).bind(JSON.stringify(Number(args.freeDeliveryThreshold)));
+        `).bind(JSON.stringify(Number(args.freeDeliveryThreshold))));
         if (typeof args.storeTagline === "string") updates.push(d1.prepare(`
           INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
           VALUES ('storeTagline', ?, 1, CURRENT_TIMESTAMP)
           ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, is_public = 1, updated_at = CURRENT_TIMESTAMP
-        `).bind(JSON.stringify(args.storeTagline.slice(0, 300)));
+        `).bind(JSON.stringify(args.storeTagline.slice(0, 300))));
         if (d1.batch && updates.length) await d1.batch(updates);
         else for (const statement of updates) await statement.run();
         return { success: true, message: aiStrings.agent.settingsUpdated };
