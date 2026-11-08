@@ -1,5 +1,5 @@
 import { verifyAdminAuth } from "../../utils/adminAuth";
-import { getD1Database } from "../../db/d1";
+import { getD1Database, toFils } from "../../db/d1";
 import type { ActionFunctionArgs } from "react-router";
 import { GoogleGenAI, Type, type FunctionDeclaration } from "@google/genai";
 import {
@@ -10,12 +10,8 @@ import {
   getOrdersFromDb,
   updateOrderStatusInDb,
 } from "../../db/ordersDb";
-import { INITIAL_META_CAMPAIGNS, INITIAL_SETTINGS } from "../../data/initialData";
 import type { MetaCampaign, StoreSettings, Product } from "../../types/store";
 import aiStrings from "../../frontend/locales/aiStrings.json";
-
-let localCampaigns: MetaCampaign[] = [...INITIAL_META_CAMPAIGNS];
-let localSettings: StoreSettings = { ...INITIAL_SETTINGS };
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "",
@@ -182,6 +178,7 @@ export async function handleAiAgentAction({ request, context }: ActionFunctionAr
   const auth = await verifyAdminAuth(request, context);
   if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401 });
   const d1 = getD1Database(context);
+  if (!d1) return Response.json({ success: false, error: "CMS database is unavailable" }, { status: 503 });
 
   try {
     const body = (await request.json()) as {
@@ -288,103 +285,105 @@ export async function handleAiAgentAction({ request, context }: ActionFunctionAr
       }
 
       if (name === "list_ad_campaigns") {
+        const { results } = await d1.prepare("SELECT campaign_json FROM meta_campaigns ORDER BY created_at DESC")
+          .bind().all<{ campaign_json: string }>();
+        const campaigns = (results || []).flatMap((row) => {
+          try { return [JSON.parse(row.campaign_json) as MetaCampaign]; } catch { return []; }
+        });
         return {
-          count: localCampaigns.length,
-          campaigns: localCampaigns.map((c) => ({
-            id: c.id,
-            name: c.name,
-            status: c.status,
-            dailyBudget: `${c.dailyBudget} AED`,
-            spentAED: `${c.spentAED} AED`,
-            impressions: c.impressions,
-            clicks: c.clicks,
-            conversions: c.conversions,
-            headline: c.headline,
+          count: campaigns.length,
+          campaigns: campaigns.map((campaign) => ({
+            id: campaign.id, name: campaign.name, status: campaign.status,
+            dailyBudget: `${campaign.dailyBudget} AED`, spentAED: `${campaign.spentAED} AED`,
+            impressions: campaign.impressions, clicks: campaign.clicks,
+            conversions: campaign.conversions, headline: campaign.headline,
           })),
         };
       }
 
       if (name === "create_ad_campaign") {
+        const budget = Number(args.dailyBudget);
+        if (!String(args.name || "").trim() || !Number.isFinite(budget) || budget <= 0) {
+          return { success: false, error: "A campaign name and positive daily budget are required" };
+        }
         const newCampaign: MetaCampaign = {
-          id: `camp-meta-${Date.now().toString(36)}`,
-          name: args.name,
+          id: "camp-meta-" + crypto.randomUUID(),
+          name: String(args.name).trim().slice(0, 160),
           objective: args.objective || "OUTCOME_SALES",
-          status: "ACTIVE",
-          dailyBudget: Number(args.dailyBudget) || 100,
-          spentAED: 0,
-          impressions: 0,
-          clicks: 0,
-          leadsCount: 0,
-          conversions: 0,
+          status: "PAUSED",
+          dailyBudget: budget,
+          spentAED: 0, impressions: 0, clicks: 0, leadsCount: 0, conversions: 0,
           targetEmirates: args.targetEmirates || ["Abu Dhabi", "Dubai", "Sharjah", "Al Ain"],
           targetInterests: ["Hospitality", "Gourmet Dates", "Emirati Heritage"],
           productCategory: args.productCategory || "all",
-          headline: args.headline,
-          primaryText: args.primaryText,
+          headline: String(args.headline || "").slice(0, 200),
+          primaryText: String(args.primaryText || "").slice(0, 2000),
           callToAction: "SHOP_NOW",
           imageUrl: "/images/redfig.jpg",
           createdAt: new Date().toISOString(),
         };
-        localCampaigns = [newCampaign, ...localCampaigns];
-        return {
-          success: true,
-          campaign: newCampaign,
-          message: `${aiStrings.agent.campaignLaunched} (${newCampaign.name} - ${newCampaign.dailyBudget} AED)`,
-        };
+        await d1.prepare("INSERT INTO meta_campaigns (campaign_id, name, status, daily_budget_fils, campaign_json) VALUES (?, ?, ?, ?, ?)")
+          .bind(newCampaign.id, newCampaign.name, newCampaign.status, toFils(budget), JSON.stringify(newCampaign)).run();
+        return { success: true, campaign: newCampaign, message: `${aiStrings.agent.campaignLaunched} (${newCampaign.name} - ${newCampaign.dailyBudget} AED)` };
       }
 
       if (name === "toggle_campaign_status") {
-        const idx = localCampaigns.findIndex((c) => c.id === args.campaignId || c.name.includes(args.campaignId));
-        if (idx > -1) {
-          localCampaigns[idx].status = args.status;
-          return {
-            success: true,
-            campaignName: localCampaigns[idx].name,
-            status: args.status,
-            message: `${aiStrings.agent.campaignStatusUpdated}: ${localCampaigns[idx].name} -> ${args.status}`,
-          };
-        }
-        return { success: false, error: aiStrings.agent.campaignNotFound };
+        const status = String(args.status || "");
+        if (!["ACTIVE", "PAUSED"].includes(status)) return { success: false, error: "Invalid campaign status" };
+        const row = await d1.prepare("SELECT campaign_json FROM meta_campaigns WHERE campaign_id = ? OR name = ? LIMIT 1")
+          .bind(String(args.campaignId), String(args.campaignId)).first<{ campaign_json: string }>();
+        if (!row) return { success: false, error: aiStrings.agent.campaignNotFound };
+        const campaign = { ...JSON.parse(row.campaign_json) as MetaCampaign, status: status as MetaCampaign["status"] };
+        await d1.prepare("UPDATE meta_campaigns SET status = ?, campaign_json = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?")
+          .bind(status, JSON.stringify(campaign), campaign.id).run();
+        return { success: true, campaignName: campaign.name, status, message: `${aiStrings.agent.campaignStatusUpdated}: ${campaign.name} -> ${status}` };
       }
 
       if (name === "update_campaign_budget") {
-        const idx = localCampaigns.findIndex((c) => c.id === args.campaignId || c.name.includes(args.campaignId));
-        if (idx > -1) {
-          localCampaigns[idx].dailyBudget = Number(args.newDailyBudget);
-          return {
-            success: true,
-            campaignName: localCampaigns[idx].name,
-            newBudget: args.newDailyBudget,
-            message: `${aiStrings.agent.campaignBudgetUpdated}: ${localCampaigns[idx].name} -> ${args.newDailyBudget} AED`,
-          };
-        }
-        return { success: false, error: aiStrings.agent.campaignNotFound };
+        const budget = Number(args.newDailyBudget);
+        if (!Number.isFinite(budget) || budget < 0) return { success: false, error: "Invalid campaign budget" };
+        const row = await d1.prepare("SELECT campaign_json FROM meta_campaigns WHERE campaign_id = ? OR name = ? LIMIT 1")
+          .bind(String(args.campaignId), String(args.campaignId)).first<{ campaign_json: string }>();
+        if (!row) return { success: false, error: aiStrings.agent.campaignNotFound };
+        const campaign = { ...JSON.parse(row.campaign_json) as MetaCampaign, dailyBudget: budget };
+        await d1.prepare("UPDATE meta_campaigns SET daily_budget_fils = ?, campaign_json = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?")
+          .bind(toFils(budget), JSON.stringify(campaign), campaign.id).run();
+        return { success: true, campaignName: campaign.name, newBudget: budget, message: `${aiStrings.agent.campaignBudgetUpdated}: ${campaign.name} -> ${budget} AED` };
       }
 
       if (name === "update_store_settings") {
-        if (args.bannerNotice) localSettings.bannerNotice = args.bannerNotice;
-        if (args.freeDeliveryThreshold) localSettings.freeDeliveryThreshold = Number(args.freeDeliveryThreshold);
-        if (args.storeTagline) localSettings.storeTagline = args.storeTagline;
-        return {
-          success: true,
-          settings: localSettings,
-          message: aiStrings.agent.settingsUpdated,
-        };
+        const updates: Array<ReturnType<typeof d1.prepare>> = [];
+        if (typeof args.bannerNotice === "string") updates.push(d1.prepare(`
+          INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
+          VALUES ('bannerNotice', ?, 1, CURRENT_TIMESTAMP)
+          ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, is_public = 1, updated_at = CURRENT_TIMESTAMP
+        `).bind(JSON.stringify(args.bannerNotice.slice(0, 500)));
+        if (Number.isFinite(Number(args.freeDeliveryThreshold)) && Number(args.freeDeliveryThreshold) >= 0) updates.push(d1.prepare(`
+          INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
+          VALUES ('freeDeliveryThreshold', ?, 1, CURRENT_TIMESTAMP)
+          ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, is_public = 1, updated_at = CURRENT_TIMESTAMP
+        `).bind(JSON.stringify(Number(args.freeDeliveryThreshold)));
+        if (typeof args.storeTagline === "string") updates.push(d1.prepare(`
+          INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
+          VALUES ('storeTagline', ?, 1, CURRENT_TIMESTAMP)
+          ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, is_public = 1, updated_at = CURRENT_TIMESTAMP
+        `).bind(JSON.stringify(args.storeTagline.slice(0, 300)));
+        if (d1.batch && updates.length) await d1.batch(updates);
+        else for (const statement of updates) await statement.run();
+        return { success: true, message: aiStrings.agent.settingsUpdated };
       }
 
       if (name === "get_store_metrics") {
         const { orders } = await getOrdersFromDb(d1);
         const { products } = await getProductsFromDb(d1);
-        const totalSales = orders.reduce((sum, o) => sum + o.total, 0);
-        const paidOrders = orders.filter((o) => o.paymentStatus === "paid" || o.status === "delivered");
-        const ziinaOrders = orders.filter((o) => o.paymentMethod === "ziina");
+        const totalSales = orders.reduce((sum, order) => sum + (order.paymentStatus === "paid" || (order.paymentMethod === "cod" && order.status === "delivered") ? order.total : 0), 0);
+        const paidOrders = orders.filter((order) => order.paymentStatus === "paid" || (order.paymentMethod === "cod" && order.status === "delivered"));
+        const ziinaOrders = orders.filter((order) => order.paymentMethod === "ziina");
+        const active = await d1.prepare("SELECT COUNT(*) AS count FROM meta_campaigns WHERE status = 'ACTIVE'").bind().first<{ count: number }>();
         return {
-          totalProducts: products.length,
-          totalOrders: orders.length,
-          totalSalesAED: totalSales,
-          paidOrdersCount: paidOrders.length,
-          ziinaOrdersCount: ziinaOrders.length,
-          activeCampaigns: localCampaigns.filter((c) => c.status === "ACTIVE").length,
+          totalProducts: products.length, totalOrders: orders.length, totalSalesAED: totalSales,
+          paidOrdersCount: paidOrders.length, ziinaOrdersCount: ziinaOrders.length,
+          activeCampaigns: Number(active?.count || 0),
         };
       }
 
