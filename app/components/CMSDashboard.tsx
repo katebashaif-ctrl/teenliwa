@@ -1078,23 +1078,7 @@ export const CMSDashboard: React.FC = () => {
 							</div>
 
 							<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-								{(r2Status.remoteImages && r2Status.remoteImages.length > 0
-									? r2Status.remoteImages
-									: [
-											"/images/product_emirati_rutab_1792506810615.jpg",
-											"/images/product_fresh_figs_1792506832142.jpg",
-											"/images/product_desert_truffles_1792506845219.jpg",
-											"/images/hero_emirati_gourmet_1792506796316.jpg",
-											"/images/r2/1787242643585-1000043352.jpg",
-											"/images/r2/1787243665670-1000043354.jpg",
-											"/images/r2/1787243771874-1000043353.jpg",
-											"/images/r2/1787244036797-1000043355.jpg",
-											"/images/r2/1787244192851-1000043357.jpg",
-											"/images/r2/1787244304784-1000043358.jpg",
-											"/images/r2/1787246347117-1000043391.jpg",
-											"/images/r2/1787231497284-1000043219.webp",
-										]
-								).map((imgUrl, idx) => (
+								{(r2Status.remoteImages || [])).map((imgUrl, idx) => (
 									<div
 										key={idx}
 										className="group relative rounded-xl overflow-hidden border border-[#E8DCCB] bg-[#FAF7F2] aspect-square flex flex-col"
