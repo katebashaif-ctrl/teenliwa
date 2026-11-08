@@ -185,7 +185,20 @@ export async function handleZiinaWebhook({ request, context }: ActionFunctionArg
       ) VALUES ('ziina', ?, ?, 1, 'processing', ?)
     `).bind(eventId, eventType, bodyHash).run();
     const insertedCount = Number(inserted?.meta?.changes ?? inserted?.meta?.rows_written ?? 0);
-    if (insertedCount === 0) return Response.json({ success: true, received: true, duplicate: true });
+    if (insertedCount === 0) {
+      const previousEvent = await d1.prepare(`
+        SELECT processing_status FROM payment_webhook_events
+        WHERE provider = 'ziina' AND provider_event_id = ? LIMIT 1
+      `).bind(eventId).first<{ processing_status: string }>();
+      if (previousEvent?.processing_status === "processed" || previousEvent?.processing_status === "ignored") {
+        return Response.json({ success: true, received: true, duplicate: true });
+      }
+      await d1.prepare(`
+        UPDATE payment_webhook_events
+        SET processing_status = 'processing', processed_at = NULL
+        WHERE provider = 'ziina' AND provider_event_id = ?
+      `).bind(eventId).run();
+    }
 
     const markEvent = async (status: "processed" | "ignored" | "failed", paymentId?: number | null) => {
       await d1.prepare(`
