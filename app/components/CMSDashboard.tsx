@@ -73,9 +73,7 @@ export const CMSDashboard: React.FC = () => {
 		settings,
 		updateSettings,
 		resetToSampleData,
-		isR2Synced,
-		syncCatalogToR2,
-		fetchCatalogFromR2,
+		
 		cmsTab,
 		setCmsTab,
 		setCurrentView,
@@ -97,24 +95,14 @@ export const CMSDashboard: React.FC = () => {
 		connected: false,
 		s3Configured: false,
 		bucket: "bt-liwa",
-		accountId: "0b7dc087410628baa1f652ea0fb8bd57",
-		endpoint: "https://0b7dc087410628baa1f652ea0fb8bd57.r2.cloudflarestorage.com",
-		publicUrl: "https://r2.teenliwa.com/products",
+		accountId: "",
+		endpoint: "",
+		publicUrl: "",
 		remoteObjectsCount: 0,
 		remoteImages: [],
 	});
-	const [r2ConfigForm, setR2ConfigForm] = useState({
-		accountId: "0b7dc087410628baa1f652ea0fb8bd57",
-		accessKeyId: "",
-		secretAccessKey: "",
-		bucket: "bt-liwa",
-		publicUrl: "https://r2.teenliwa.com/products",
-		endpoint: "https://0b7dc087410628baa1f652ea0fb8bd57.r2.cloudflarestorage.com",
-	});
-	const [isSavingR2Config, setIsSavingR2Config] = useState(false);
-	const [isSyncingR2, setIsSyncingR2] = useState(false);
+
 	const [isUploadingR2, setIsUploadingR2] = useState(false);
-	const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
 	// New Product Form State
 	const [newProdName, setNewProdName] = useState("");
@@ -139,21 +127,11 @@ export const CMSDashboard: React.FC = () => {
 
 	// Load R2 data on mount
 	const loadR2Status = () => {
-		fetch("/api/r2")
-			.then((res) => res.json() as Promise<R2Status>)
-			.then((data: R2Status) => {
-				setR2Status(data);
-				setR2ConfigForm((prev) => ({
-					...prev,
-					accountId: data.accountId || prev.accountId,
-					bucket: data.bucket || prev.bucket,
-					endpoint: data.endpoint || prev.endpoint,
-					publicUrl: data.publicUrl || prev.publicUrl,
-				}));
-			})
-			.catch((err) => console.warn("R2 fetch error:", err));
+		fetch("/api/r2", { credentials: "same-origin" })
+			.then((response) => response.json() as Promise<R2Status>)
+			.then((data) => setR2Status(data))
+			.catch((error) => console.warn("R2 image storage status unavailable:", error));
 	};
-
 	useEffect(() => {
 		loadR2Status();
 	}, []);
@@ -185,10 +163,6 @@ export const CMSDashboard: React.FC = () => {
 		{ label: "كنار كيلو ونص", url: "/images/kanar.webp" },
 	];
 
-	// Catalogue and store settings are persisted in D1. R2 is reserved for media objects.
-	const handleSyncCatalogToR2 = async () => {
-		showToast("التخزين مفصول حسب الوظيفة", "المنتجات والطلبات والإعدادات محفوظة في D1. تُستخدم R2 لصور المنتجات والوسائط فقط.", "info");
-	};
 
 	// Handle Direct R2 Image Upload (Media Library)
 	const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -276,7 +250,7 @@ export const CMSDashboard: React.FC = () => {
 					const newEntry = { label: `R2 سحابية · ${file.name.slice(0, 15)}`, url: data.url };
 					setUploadedImages((prev) => [newEntry, ...prev]);
 
-					showToast("تم تخزين الصورة في R2", `تم حفظ وتخزين صورة "${file.name}" مباشرة في سحابة R2 بنجاح.`);
+					showToast("تم تخزين الصورة في R2", `تم حفظ وتخزين صورة "${file.name}" مباشرة في R2 للصور بنجاح.`);
 				} else {
 					// Fallback preview
 					if (target === "new") setNewProdImage(base64);
@@ -595,14 +569,7 @@ export const CMSDashboard: React.FC = () => {
 									<Plus className="w-3.5 h-3.5" />
 									<span>إضافة محصول جديد</span>
 								</button>
-								<button
-									onClick={handleSyncCatalogToR2}
-									disabled={isSyncingR2}
-									className="px-3 py-1.5 bg-stone-700 text-white text-xs font-bold rounded-lg hover:bg-stone-800 transition-colors flex items-center gap-1.5"
-								>
-									<RefreshCw className={`w-3.5 h-3.5 ${isSyncingR2 ? "animate-spin" : ""}`} />
-									<span>مزامنة الكتالوج مع R2</span>
-								</button>
+								<span className="text-[11px] text-stone-500">الكتالوج محفوظ مباشرة في D1 v2</span>
 							</div>
 						</div>
 
@@ -690,49 +657,9 @@ export const CMSDashboard: React.FC = () => {
 				{/* TAB 2: PRODUCTS MANAGEMENT */}
 				{cmsTab === "products" && (
 					<div className="space-y-6">
-						{/* R2 Cloud Synchronous Status Bar */}
-						<div className="bg-gradient-to-r from-[#FAF7F2] to-amber-50/50 p-4 rounded-xl border border-[#E8DCCB] flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-							<div className="flex items-center gap-3">
-								<div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-800 flex items-center justify-center shrink-0">
-									<Cloud className="w-4 h-4 text-amber-700" />
-								</div>
-								<div>
-									<div className="flex items-center gap-2">
-										<span className="font-bold text-stone-900">سحابة Cloudflare R2 التزامنية:</span>
-										<span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
-											isR2Synced ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-										}`}>
-											<span className={`w-1.5 h-1.5 rounded-full ${isR2Synced ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
-											<span>{isR2Synced ? "الكتالوج متزامن ومحفوظ في R2" : "مزامنة سحابية نشطة"}</span>
-										</span>
-									</div>
-									<p className="text-[11px] text-stone-500 mt-0.5">
-										أي منتج جديد أو صورة تُضاف تُخزن وتُحدث مباشرة في سلة <strong>{r2Status.bucket}</strong> دون الحاجة لأي تخزين محلي.
-									</p>
-								</div>
-							</div>
-
-							<div className="flex items-center gap-2 shrink-0">
-								<button
-									onClick={handleSyncCatalogToR2}
-									disabled={isSyncingR2}
-									className="px-3 py-1.5 bg-[#2C2014] text-amber-200 rounded-lg hover:bg-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
-								>
-									<RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isSyncingR2 ? "animate-spin" : ""}`} />
-									<span>{isSyncingR2 ? "مزامنة..." : "مزامنة فورية لـ R2"}</span>
-								</button>
-								<button
-									onClick={async () => {
-										const ok = await fetchCatalogFromR2();
-										if (ok) showToast("تم التحديث من R2", "تم استرجاع أحدث بيانات المنتجات من السحابة.");
-										else showToast("تنبيه", "لم يتم العثور على كتالوج مسبق في R2.", "warning");
-									}}
-									className="px-3 py-1.5 bg-white border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50 font-semibold flex items-center gap-1.5 transition-colors"
-								>
-									<Download className="w-3.5 h-3.5 text-stone-500" />
-									<span>جلب من R2</span>
-								</button>
-							</div>
+						<div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-950">
+							<strong>حالة قاعدة البيانات والمخزون</strong>
+							<p className="mt-1">المنتجات والأسعار والمخزون تُدار في D1 v2. تُرفع الصور إلى Cloudflare R2 عبر ربط BUCKET، ولا توجد مزامنة كتالوج منفصلة.</p>
 						</div>
 
 						<div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-[#E8DCCB]">
@@ -1098,56 +1025,19 @@ export const CMSDashboard: React.FC = () => {
 								</div>
 							</div>
 
-							<div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+							<div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
 								<div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E8DCCB] space-y-1">
-									<p className="text-stone-500 font-medium">معرّف الحساب (Account ID):</p>
-									<p className="font-mono font-bold text-stone-800 break-all select-all text-[11px]" dir="ltr">
-										{r2Status.accountId}
-									</p>
+									<p className="text-stone-500 font-medium">R2 Bucket binding:</p>
+									<p className="font-mono font-bold text-amber-900" dir="ltr">BUCKET → {r2Status.bucket}</p>
 								</div>
-
 								<div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E8DCCB] space-y-1">
-									<p className="text-stone-500 font-medium">سلة التخزين الأساسية (Bucket):</p>
-									<p className="font-mono font-bold text-amber-900" dir="ltr">
-										{r2Status.bucket}
-									</p>
+									<p className="text-stone-500 font-medium">ملفات الصور المخزنة:</p>
+									<p className="font-bold text-emerald-800 text-base tabular-nums">{r2Status.remoteObjectsCount} ملف</p>
 								</div>
-
-								<div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E8DCCB] space-y-1">
-									<p className="text-stone-500 font-medium">الملفات والصور المخزنة:</p>
-									<p className="font-bold text-emerald-800 text-base tabular-nums">
-										{r2Status.remoteObjectsCount} ملف سحابي
-									</p>
-								</div>
-
 								<div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E8DCCB] space-y-1">
 									<p className="text-stone-500 font-medium">مصدر بيانات المتجر:</p>
-									<p className="font-bold text-stone-800 text-[11px] flex items-center gap-1">
-										<span className={`w-2 h-2 rounded-full ${isR2Synced ? "bg-emerald-500" : "bg-amber-500"}`} />
-										<span>{isR2Synced ? "قاعدة D1" : "D1 هي المصدر الأساسي"}</span>
-									</p>
+									<p className="font-bold text-stone-800 text-[11px]">Cloudflare D1 v2</p>
 								</div>
-							</div>
-
-							<div className="p-3 rounded-xl bg-stone-50 border border-stone-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-								<div className="flex-1 min-w-0">
-									<p className="font-semibold text-stone-800">نقطة وصول S3 API Endpoint:</p>
-									<p className="font-mono text-stone-600 text-[11px] mt-0.5 truncate" dir="ltr">
-										{r2Status.endpoint}
-									</p>
-									{r2Status.publicUrl && (
-										<p className="font-mono text-emerald-700 text-[11px] mt-0.5 truncate" dir="ltr">
-											Public URL: {r2Status.publicUrl}
-										</p>
-									)}
-								</div>
-								<button
-									onClick={() => copyToClipboard(r2Status.endpoint)}
-									className="px-3 py-1.5 bg-white border border-stone-300 rounded text-stone-700 hover:bg-stone-100 flex items-center gap-1 text-[11px] shrink-0"
-								>
-									<Copy className="w-3 h-3" />
-									<span>{copiedKey === r2Status.endpoint ? "تم النسخ" : "نسخ الرابط"}</span>
-								</button>
 							</div>
 
 							<div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-950 leading-6">
@@ -1179,7 +1069,7 @@ export const CMSDashboard: React.FC = () => {
 										معرض وسائط ومحاصيل سحابة R2
 									</h4>
 									<p className="text-xs text-stone-500">
-										جميع الصور المخزنة في سلة {r2Status.bucket} - يتم تخزينها واستعراضها سحابياً ومباشرة
+										صور المنتجات المخزنة في R2 عبر Worker binding فقط
 									</p>
 								</div>
 								<span className="text-xs font-bold text-[#8B5A2B] bg-[#F5EFE6] px-3 py-1 rounded-full">
