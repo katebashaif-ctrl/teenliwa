@@ -15,14 +15,10 @@ export function getWorkerEnv(context?: unknown): Record<string, any> {
   return candidate && typeof candidate === "object" ? candidate : {};
 }
 
-/**
- * The production binding intentionally has a hyphen, so always use bracket
- * notation. DB is only a local-development fallback and is not configured in
- * the production Wrangler file.
- */
+/** The Cloudflare binding is TEENLIWA_V2; the database itself is named teenliwa-v2. */
 export function getD1Database(context?: unknown): D1DatabaseLike | null {
   const env = getWorkerEnv(context);
-  const database = env["teenliwa-v2"] || env.DB;
+  const database = env.TEENLIWA_V2 || env.DB;
   return database && typeof database.prepare === "function" ? database as D1DatabaseLike : null;
 }
 
