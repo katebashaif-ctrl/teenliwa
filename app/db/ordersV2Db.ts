@@ -42,6 +42,8 @@ function mapJoinedRows(rows: DbRow[]): Order[] {
           ziinaPaymentIntentId: row.provider_payment_id || undefined,
           ziinaRedirectUrl: row.redirect_url || undefined,
           transactionId: row.provider_transaction_id || undefined,
+          cardBrand: row.card_brand || undefined,
+          cardLastFour: row.card_last_four || undefined,
           status: mapOrderStatus(String(row.status || "pending")),
           createdAt: row.created_at || new Date().toISOString(),
         },
@@ -88,6 +90,8 @@ export async function getOrdersFromDb(db?: D1DatabaseLike): Promise<{
       pay.provider_payment_id,
       pay.provider_transaction_id,
       pay.redirect_url,
+      pay.card_brand,
+      pay.card_last_four,
       i.id AS item_id,
       i.product_id,
       i.product_name,
@@ -287,16 +291,18 @@ export async function updateOrderPaymentInDb(
     await db.prepare(`
       INSERT INTO payments (
         order_id, provider, provider_payment_id, provider_transaction_id,
-        idempotency_key, amount_fils, currency, status, redirect_url
-      ) VALUES (?, 'ziina', ?, ?, ?, ?, 'AED', ?, ?)
+        idempotency_key, amount_fils, currency, status, redirect_url, card_brand, card_last_four
+      ) VALUES (?, 'ziina', ?, ?, ?, ?, 'AED', ?, ?, ?, ?)
       ON CONFLICT(provider, provider_payment_id) DO UPDATE SET
         provider_transaction_id = COALESCE(excluded.provider_transaction_id, payments.provider_transaction_id),
         status = excluded.status,
         redirect_url = COALESCE(excluded.redirect_url, payments.redirect_url),
+        card_brand = COALESCE(excluded.card_brand, payments.card_brand),
+        card_last_four = COALESCE(excluded.card_last_four, payments.card_last_four),
         updated_at = CURRENT_TIMESTAMP
     `).bind(
       order.id, providerPaymentId, details.transactionId || null, key, order.total_fils,
-      paymentDbStatus, details.ziinaRedirectUrl || null
+      paymentDbStatus, details.ziinaRedirectUrl || null, details.cardBrand || null, details.cardLastFour || null
     ).run();
   } else {
     const latest = await db.prepare("SELECT id FROM payments WHERE order_id = ? ORDER BY id DESC LIMIT 1")
@@ -304,14 +310,15 @@ export async function updateOrderPaymentInDb(
     if (latest) {
       await db.prepare(`
         UPDATE payments SET status = ?, provider_transaction_id = COALESCE(?, provider_transaction_id),
+          card_brand = COALESCE(?, card_brand), card_last_four = COALESCE(?, card_last_four),
           updated_at = CURRENT_TIMESTAMP WHERE id = ?
-      `).bind(paymentDbStatus, details.transactionId || null, latest.id).run();
+      `).bind(paymentDbStatus, details.transactionId || null, details.cardBrand || null, details.cardLastFour || null, latest.id).run();
     } else {
       await db.prepare(`
-        INSERT INTO payments (order_id, provider, idempotency_key, amount_fils, currency, status, provider_transaction_id)
-        VALUES (?, 'ziina', ?, ?, 'AED', ?, ?)
+        INSERT INTO payments (order_id, provider, idempotency_key, amount_fils, currency, status, provider_transaction_id, card_brand, card_last_four)
+        VALUES (?, 'ziina', ?, ?, 'AED', ?, ?, ?, ?)
       `).bind(order.id, "manual-payment-" + order.id + "-" + Date.now(), order.total_fils,
-        paymentDbStatus, details.transactionId || null).run();
+        paymentDbStatus, details.transactionId || null, details.cardBrand || null, details.cardLastFour || null).run();
     }
   }
 
