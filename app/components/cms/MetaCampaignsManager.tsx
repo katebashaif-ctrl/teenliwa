@@ -245,6 +245,11 @@ export const MetaCampaignsManager: React.FC = () => {
 				</div>
 			</div>
 
+			<div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-950">
+				<strong>مسودات الحملات — لا يتم تشغيل إعلانات أو إنفاق ميزانية من هذه اللوحة تلقائياً.</strong>
+				<p>يتم حفظ إعدادات الحملة في D1. ربط نشر الحملات وتفعيلها فعلياً عبر Meta Marketing API يحتاج صلاحيات الحساب ومراجعة مستقلة قبل الإطلاق.</p>
+			</div>
+
 			{/* KPI Metric Cards */}
 			<div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
 				<div className="bg-white p-4 rounded-2xl border border-[#E8DCCB] shadow-sm space-y-1">
