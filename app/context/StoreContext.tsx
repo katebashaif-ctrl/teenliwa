@@ -420,6 +420,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		try { await fetch("/api/admin/session", { method: "DELETE", credentials: "same-origin" }); } catch {}
 		setIsAdminAuthenticated(false);
 		setOrders([]);
+		setMetaCampaigns([]);
+		setMarketingLeads([]);
+		setMetaConfig({ ...INITIAL_META_CONFIG, accessToken: "" });
 		setCurrentView("store");
 		showToast(t("toasts.logout"), t("toasts.logoutMsg"), "info");
 	};
