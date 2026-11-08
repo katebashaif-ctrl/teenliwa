@@ -1,251 +1,228 @@
-import { verifyAdminAuth } from "../../utils/adminAuth";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { INITIAL_META_CAMPAIGNS, INITIAL_META_CONFIG, INITIAL_PRODUCTS } from "../../data/initialData";
+import { getD1Database, getWorkerEnv, toFils } from "../../db/d1";
+import { getProductsFromDb } from "../../db/productsDb";
+import { verifyAdminAuth } from "../../utils/adminAuth";
 import type { MetaCampaign, MetaMarketingApiConfig } from "../../types/store";
 
-let storedConfig: MetaMarketingApiConfig = { ...INITIAL_META_CONFIG, accessToken: "" };
-function getMetaAccessToken(context?: any): string {
-  const env = (context as any)?.cloudflare?.env || process.env || {};
-  return String(env.META_ACCESS_TOKEN || "").trim();
+function parseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try { return JSON.parse(value) as T; } catch { return fallback; }
 }
-let storedCampaigns: MetaCampaign[] = [...INITIAL_META_CAMPAIGNS];
+
+function getMetaAccessToken(context?: any): string {
+  return String(getWorkerEnv(context).META_ACCESS_TOKEN || "").trim();
+}
+
+function safeMetaConfig(value: Partial<MetaMarketingApiConfig> | null | undefined): MetaMarketingApiConfig {
+  return {
+    adAccountId: String(value?.adAccountId || ""),
+    accessToken: "",
+    pixelId: String(value?.pixelId || ""),
+    catalogId: String(value?.catalogId || ""),
+    businessManagerId: String(value?.businessManagerId || ""),
+    isConnected: false,
+    apiVersion: String(value?.apiVersion || "v21.0"),
+  };
+}
+
+async function readStoredMetaConfig(db: NonNullable<ReturnType<typeof getD1Database>>): Promise<MetaMarketingApiConfig> {
+  const row = await db.prepare("SELECT setting_value FROM store_settings WHERE setting_key = 'metaMarketingConfig' LIMIT 1")
+    .bind().first<{ setting_value: string }>();
+  return safeMetaConfig(parseJson<Partial<MetaMarketingApiConfig>>(row?.setting_value, {}));
+}
+
+async function readCampaigns(db: NonNullable<ReturnType<typeof getD1Database>>): Promise<MetaCampaign[]> {
+  const { results } = await db.prepare("SELECT campaign_json FROM meta_campaigns ORDER BY created_at DESC").bind()
+    .all<{ campaign_json: string }>();
+  return (results || []).map((row) => parseJson<MetaCampaign>(row.campaign_json, null as any)).filter(Boolean);
+}
 
 export async function handleMetaCampaignsLoader({ request, context }: LoaderFunctionArgs) {
-	const auth = await verifyAdminAuth(request, context);
-	if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401, headers: { "Cache-Control":"no-store" } });
-	const url = new URL(request.url);
-	const actionType = url.searchParams.get("action");
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success: false, error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  const env = getWorkerEnv(context);
+  const metaAccessToken = getMetaAccessToken(context);
+  const url = new URL(request.url);
 
-	const metaAccessToken = getMetaAccessToken(context);
-	if (actionType === "verify_token") {
-		if (!metaAccessToken) return Response.json({ success:false, connected:false, error:"Configure META_ACCESS_TOKEN as a Cloudflare Worker secret." }, { status:503 });
-		try {
-			const res = await fetch(
-				`https://graph.facebook.com/v21.0/me?access_token=${encodeURIComponent(metaAccessToken)}`,
-			);
-			const data = (await res.json()) as { id?: string; name?: string; error?: unknown };
-			return Response.json({
-				success: !data.error,
-				metaAccount: data,
-				connected: !data.error,
-			});
-		} catch (e) {
-			return Response.json({
-				success: false,
-				error: e instanceof Error ? e.message : "Failed to verify Meta token",
-			});
-		}
-	}
+  if (url.searchParams.get("action") === "verify_token") {
+    if (!metaAccessToken) return Response.json({ success: false, connected: false, error: "Configure META_ACCESS_TOKEN as a Cloudflare Worker secret." }, { status: 503 });
+    try {
+      const config = await readStoredMetaConfig(getD1Database(context)!);
+      const response = await fetch(`https://graph.facebook.com/${encodeURIComponent(config.apiVersion)}/me?access_token=${encodeURIComponent(metaAccessToken)}`);
+      const data = await response.json() as { id?: string; name?: string; error?: unknown };
+      return Response.json({ success: response.ok && !data.error, metaAccount: data, connected: response.ok && !data.error }, { headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+      return Response.json({ success: false, error: error instanceof Error ? error.message : "Failed to verify Meta token" }, { status: 503 });
+    }
+  }
 
-	const totalSpent = storedCampaigns.reduce((sum, c) => sum + (c.spentAED || 0), 0);
-	const totalImpressions = storedCampaigns.reduce((sum, c) => sum + (c.impressions || 0), 0);
-	const totalClicks = storedCampaigns.reduce((sum, c) => sum + (c.clicks || 0), 0);
-	const totalLeads = storedCampaigns.reduce((sum, c) => sum + (c.leadsCount || 0), 0);
-	const totalConversions = storedCampaigns.reduce((sum, c) => sum + (c.conversions || 0), 0);
-
-	return Response.json({
-		success: true,
-		config: { ...storedConfig, accessToken: "", isConnected: Boolean(metaAccessToken && storedConfig.adAccountId) },
-		campaigns: storedCampaigns,
-		summary: {
-			totalSpentAED: totalSpent,
-			totalImpressions,
-			totalClicks,
-			totalLeads,
-			totalConversions,
-			averageCTR: totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) + "%" : "0%",
-			costPerLeadAED: totalLeads > 0 ? (totalSpent / totalLeads).toFixed(1) : "0",
-		},
-		documentationUrl: "https://developers.facebook.com/documentation/ads-commerce/marketing-api",
-		apiVersion: storedConfig.apiVersion,
-	});
+  const db = getD1Database(context);
+  if (!db) return Response.json({ success: false, error: "CMS database is unavailable" }, { status: 503 });
+  try {
+    const [storedConfig, storedCampaigns] = await Promise.all([readStoredMetaConfig(db), readCampaigns(db)]);
+    const config = { ...storedConfig, accessToken: "", isConnected: Boolean(metaAccessToken && storedConfig.adAccountId) };
+    const totalSpent = storedCampaigns.reduce((sum, campaign) => sum + (campaign.spentAED || 0), 0);
+    const totalImpressions = storedCampaigns.reduce((sum, campaign) => sum + (campaign.impressions || 0), 0);
+    const totalClicks = storedCampaigns.reduce((sum, campaign) => sum + (campaign.clicks || 0), 0);
+    const totalLeads = storedCampaigns.reduce((sum, campaign) => sum + (campaign.leadsCount || 0), 0);
+    const totalConversions = storedCampaigns.reduce((sum, campaign) => sum + (campaign.conversions || 0), 0);
+    return Response.json({
+      success: true, config, campaigns: storedCampaigns,
+      summary: {
+        totalSpentAED: totalSpent, totalImpressions, totalClicks, totalLeads, totalConversions,
+        averageCTR: totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) + "%" : "0%",
+        costPerLeadAED: totalLeads > 0 ? (totalSpent / totalLeads).toFixed(2) : "0",
+      },
+      documentationUrl: "https://developers.facebook.com/documentation/ads-commerce/marketing-api",
+      apiVersion: config.apiVersion,
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    console.error("Meta campaign read failed:", error);
+    return Response.json({ success: false, error: "Could not load Meta CMS data" }, { status: 503 });
+  }
 }
 
 export async function handleMetaCampaignsAction({ request, context }: ActionFunctionArgs) {
-	const auth = await verifyAdminAuth(request, context);
-	if (!auth.authorized) return Response.json({ success:false, error:"Unauthorized" }, { status:401 });
-	try {
-		const body = (await request.json()) as {
-			intent: string;
-			config?: Partial<MetaMarketingApiConfig>;
-			campaign?: Omit<
-				MetaCampaign,
-				"id" | "spentAED" | "impressions" | "clicks" | "leadsCount" | "conversions" | "createdAt"
-			>;
-			campaignId?: string;
-			status?: "ACTIVE" | "PAUSED";
-			dailyBudget?: number;
-		};
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  const db = getD1Database(context);
+  if (!db) return Response.json({ success: false, error: "CMS database is unavailable" }, { status: 503 });
 
-		if (body.intent === "update_config" && body.config) {
-			const { accessToken: _ignoredToken, ...safeConfig } = body.config as any;
-			const metaAccessToken = getMetaAccessToken(context);
-			storedConfig = {
-				...storedConfig,
-				...safeConfig,
-				accessToken: "",
-				isConnected: Boolean(metaAccessToken && safeConfig.adAccountId),
-			};
-			return Response.json({
-				success: true,
-				message: "Meta settings saved. Configure META_ACCESS_TOKEN as a Worker secret for API access.",
-				config: { ...storedConfig, accessToken: "" },
-			});
-		}
+  try {
+    const body = await request.json() as {
+      intent: string;
+      config?: Partial<MetaMarketingApiConfig>;
+      campaign?: Omit<MetaCampaign, "id" | "spentAED" | "impressions" | "clicks" | "leadsCount" | "conversions" | "createdAt">;
+      campaignId?: string;
+      status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
+      dailyBudget?: number;
+    };
 
-		if (body.intent === "create_campaign" && body.campaign) {
-			const newCamp: MetaCampaign = {
-				...body.campaign,
-				id: `camp-meta-${Date.now().toString(36)}`,
-				spentAED: 0,
-				impressions: 0,
-				clicks: 0,
-				leadsCount: 0,
-				conversions: 0,
-				createdAt: new Date().toISOString(),
-			};
-			storedCampaigns.unshift(newCamp);
-			return Response.json({
-				success: true,
-				message: "Campaign created successfully",
-				campaign: newCamp,
-			});
-		}
+    if (body.intent === "update_config" && body.config) {
+      const config = safeMetaConfig(body.config);
+      await db.prepare(`
+        INSERT INTO store_settings (setting_key, setting_value, is_public, updated_at)
+        VALUES ('metaMarketingConfig', ?, 0, CURRENT_TIMESTAMP)
+        ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value,
+          is_public = 0, updated_at = CURRENT_TIMESTAMP
+      `).bind(JSON.stringify(config)).run();
+      return Response.json({ success: true, message: "Meta settings saved. Configure META_ACCESS_TOKEN as a Worker secret.", config });
+    }
 
-		if (body.intent === "update_status" && body.campaignId && body.status) {
-			storedCampaigns = storedCampaigns.map((c) =>
-				c.id === body.campaignId ? { ...c, status: body.status! } : c,
-			);
-			return Response.json({
-				success: true,
-				message: `Campaign status updated to ${body.status}`,
-			});
-		}
+    if (body.intent === "create_campaign" && body.campaign) {
+      const campaignInput = body.campaign;
+      if (!campaignInput.name?.trim() || !Number.isFinite(Number(campaignInput.dailyBudget)) || Number(campaignInput.dailyBudget) < 0) {
+        return Response.json({ success: false, error: "Campaign name and a valid non-negative daily budget are required" }, { status: 400 });
+      }
+      const campaign: MetaCampaign = {
+        ...campaignInput,
+        id: "camp-meta-" + crypto.randomUUID(),
+        spentAED: 0, impressions: 0, clicks: 0, leadsCount: 0, conversions: 0,
+        createdAt: new Date().toISOString(),
+      };
+      await db.prepare(`
+        INSERT INTO meta_campaigns (campaign_id, name, status, daily_budget_fils, campaign_json)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(campaign.id, campaign.name, campaign.status, toFils(Number(campaign.dailyBudget)), JSON.stringify(campaign)).run();
+      return Response.json({ success: true, message: "Campaign created successfully", campaign });
+    }
 
-		if (body.intent === "update_budget" && body.campaignId && body.dailyBudget !== undefined) {
-			storedCampaigns = storedCampaigns.map((c) =>
-				c.id === body.campaignId ? { ...c, dailyBudget: body.dailyBudget! } : c,
-			);
-			return Response.json({
-				success: true,
-				message: `Daily budget updated to ${body.dailyBudget} AED`,
-			});
-		}
+    if (body.intent === "update_status" && body.campaignId && body.status) {
+      if (!["ACTIVE", "PAUSED", "ARCHIVED"].includes(body.status)) return Response.json({ success: false, error: "Invalid campaign status" }, { status: 400 });
+      const row = await db.prepare("SELECT campaign_json FROM meta_campaigns WHERE campaign_id = ? LIMIT 1")
+        .bind(body.campaignId).first<{ campaign_json: string }>();
+      if (!row) return Response.json({ success: false, error: "Campaign not found" }, { status: 404 });
+      const campaign = { ...parseJson<MetaCampaign>(row.campaign_json, {} as MetaCampaign), status: body.status };
+      await db.prepare("UPDATE meta_campaigns SET status = ?, campaign_json = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?")
+        .bind(body.status, JSON.stringify(campaign), body.campaignId).run();
+      return Response.json({ success: true, message: "Campaign status updated" });
+    }
 
-		if (body.intent === "delete_campaign" && body.campaignId) {
-			storedCampaigns = storedCampaigns.filter((c) => c.id !== body.campaignId);
-			return Response.json({
-				success: true,
-				message: "Campaign deleted successfully",
-			});
-		}
+    if (body.intent === "update_budget" && body.campaignId && body.dailyBudget !== undefined) {
+      if (!Number.isFinite(Number(body.dailyBudget)) || Number(body.dailyBudget) < 0) return Response.json({ success: false, error: "Invalid daily budget" }, { status: 400 });
+      const row = await db.prepare("SELECT campaign_json FROM meta_campaigns WHERE campaign_id = ? LIMIT 1")
+        .bind(body.campaignId).first<{ campaign_json: string }>();
+      if (!row) return Response.json({ success: false, error: "Campaign not found" }, { status: 404 });
+      const campaign = { ...parseJson<MetaCampaign>(row.campaign_json, {} as MetaCampaign), dailyBudget: Number(body.dailyBudget) };
+      await db.prepare("UPDATE meta_campaigns SET daily_budget_fils = ?, campaign_json = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?")
+        .bind(toFils(Number(body.dailyBudget)), JSON.stringify(campaign), body.campaignId).run();
+      return Response.json({ success: true, message: "Daily budget updated" });
+    }
 
-		return Response.json(
-			{ success: false, error: `Invalid intent: ${body.intent}` },
-			{ status: 400 },
-		);
-	} catch (e) {
-		return Response.json(
-			{
-				success: false,
-				error: e instanceof Error ? e.message : "Error processing request",
-			},
-			{ status: 500 },
-		);
-	}
+    if (body.intent === "delete_campaign" && body.campaignId) {
+      const result: any = await db.prepare("DELETE FROM meta_campaigns WHERE campaign_id = ?").bind(body.campaignId).run();
+      const changes = Number(result?.meta?.changes ?? result?.meta?.rows_written ?? 0);
+      return changes > 0
+        ? Response.json({ success: true, message: "Campaign deleted successfully" })
+        : Response.json({ success: false, error: "Campaign not found" }, { status: 404 });
+    }
+
+    return Response.json({ success: false, error: "Invalid campaign intent" }, { status: 400 });
+  } catch (error) {
+    console.error("Meta CMS write failed:", error);
+    return Response.json({ success: false, error: error instanceof Error ? error.message : "Error processing request" }, { status: 503 });
+  }
 }
 
-export async function handleMetaCatalogFeed({ request }: LoaderFunctionArgs) {
-	const url = new URL(request.url);
-	const format = url.searchParams.get("format") || "xml";
-	const baseUrl = `${url.protocol}//${url.host}`;
-	const products = INITIAL_PRODUCTS;
+export async function handleMetaCatalogFeed({ request, context }: LoaderFunctionArgs) {
+  const db = getD1Database(context);
+  if (!db) return Response.json({ success: false, error: "Product catalogue is unavailable" }, { status: 503 });
+  const url = new URL(request.url);
+  const format = url.searchParams.get("format") || "xml";
+  const baseUrl = `${url.protocol}//${url.host}`;
+  try {
+    const { products } = await getProductsFromDb(db, false);
+    const availableProducts = products.filter((product) => product.inStock && !product.disabled);
+    if (format === "csv") {
+      const headers = ["id", "title", "description", "availability", "condition", "price", "link", "image_link", "brand", "google_product_category", "custom_label_0"];
+      const rows = availableProducts.map((product) => {
+        const cleanDescription = (product.description || "").replace(/"/g, '""').replace(/\n/g, " ");
+        const cleanName = product.name.replace(/"/g, '""');
+        const imageUrl = product.image.startsWith("http") ? product.image : `${baseUrl}${product.image.startsWith("/") ? product.image : "/" + product.image}`;
+        const productLink = `${baseUrl}/#prod-${product.id}`;
+        const availability = product.inStock ? "in stock" : "out of stock";
+        const priceFormatted = Number(product.price).toFixed(2) + " AED";
+        return [
+          `"${product.id}"`, `"${cleanName}"`, `"${cleanDescription}"`,
+          `"${availability}"`, '"new"', `"${priceFormatted}"`,
+          `"${productLink}"`, `"${imageUrl}"`, '"Teen Liwa"',
+          '"Food, Beverages & Tobacco > Food Items > Fresh Produce"',
+          `"${String(product.origin || "Liwa").replace(/"/g, '""')}"`,
+        ].join(",");
+      });
+      const csv = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+      return new Response(csv, { headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="meta_facebook_catalog.csv"',
+        "Cache-Control": "no-store",
+      }});
+    }
 
-	if (format === "csv") {
-		const headers = [
-			"id",
-			"title",
-			"description",
-			"availability",
-			"condition",
-			"price",
-			"link",
-			"image_link",
-			"brand",
-			"google_product_category",
-			"custom_label_0",
-		];
-
-		const rows = products.map((p) => {
-			const cleanDesc = (p.description || "").replace(/"/g, '""').replace(/\n/g, " ");
-			const cleanName = p.name.replace(/"/g, '""');
-			const imageUrl = p.image.startsWith("http") ? p.image : `${baseUrl}${p.image.startsWith("/") ? p.image : `/${p.image}`}`;
-			const productLink = `${baseUrl}/#prod-${p.id}`;
-			const avail = p.inStock ? "in stock" : "out of stock";
-			const priceFormatted = `${p.price}.00 AED`;
-
-			return [
-				`"${p.id}"`,
-				`"${cleanName}"`,
-				`"${cleanDesc}"`,
-				`"${avail}"`,
-				`"new"`,
-				`"${priceFormatted}"`,
-				`"${productLink}"`,
-				`"${imageUrl}"`,
-				`"Teen Liwa"`,
-				`"Food, Beverages & Tobacco > Food Items > Fresh Produce"`,
-				`"${(p.origin || "Liwa").replace(/"/g, '""')}"`,
-			].join(",");
-		});
-
-		const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
-		return new Response(csvContent, {
-			headers: {
-				"Content-Type": "text/csv; charset=utf-8",
-				"Content-Disposition": 'attachment; filename="meta_facebook_catalog.csv"',
-				"Cache-Control": "max-age=3600, s-maxage=3600",
-			},
-		});
-	}
-
-	const escapeXml = (unsafe: string) => {
-		return unsafe
-			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;")
-			.replace(/"/g, "&quot;")
-			.replace(/'/g, "&apos;");
-	};
-
-	const xmlItems = products
-		.map((p) => {
-			const imageUrl = p.image.startsWith("http") ? p.image : `${baseUrl}${p.image.startsWith("/") ? p.image : `/${p.image}`}`;
-			const productLink = `${baseUrl}/#prod-${p.id}`;
-			const avail = p.inStock ? "in stock" : "out of stock";
-
-			return `
+    const escapeXml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    const xmlItems = availableProducts.map((product) => {
+      const imageUrl = product.image.startsWith("http") ? product.image : `${baseUrl}${product.image.startsWith("/") ? product.image : "/" + product.image}`;
+      const productLink = `${baseUrl}/#prod-${product.id}`;
+      return `
     <item>
-      <g:id>${escapeXml(p.id)}</g:id>
-      <g:title>${escapeXml(p.name)}</g:title>
-      <g:description>${escapeXml(p.desc || p.description || p.name)}</g:description>
+      <g:id>${escapeXml(product.id)}</g:id>
+      <g:title>${escapeXml(product.name)}</g:title>
+      <g:description>${escapeXml(product.desc || product.description || product.name)}</g:description>
       <g:link>${escapeXml(productLink)}</g:link>
       <g:image_link>${escapeXml(imageUrl)}</g:image_link>
       <g:brand>Teen Liwa</g:brand>
       <g:condition>new</g:condition>
-      <g:availability>${avail}</g:availability>
-      <g:price>${p.price}.00 AED</g:price>
+      <g:availability>in stock</g:availability>
+      <g:price>${Number(product.price).toFixed(2)} AED</g:price>
       <g:shipping_country>AE</g:shipping_country>
       <g:shipping_service>Standard Cold Delivery</g:shipping_service>
       <g:shipping_price>0.00 AED</g:shipping_price>
       <g:google_product_category>Food, Beverages &amp; Tobacco &gt; Food Items &gt; Fresh Produce</g:google_product_category>
-      <g:custom_label_0>${escapeXml(p.origin || "Liwa")}</g:custom_label_0>
-      <g:custom_label_1>${escapeXml(p.tag || "general")}</g:custom_label_1>
+      <g:custom_label_0>${escapeXml(product.origin || "Liwa")}</g:custom_label_0>
+      <g:custom_label_1>${escapeXml(product.tag || "general")}</g:custom_label_1>
     </item>`;
-		})
-		.join("");
-
-	const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+    }).join("");
+    const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss xmlns:g="http://base.google.com/ns/1.0" version="2.0">
   <channel>
     <title>Teen Liwa Product Catalog Feed</title>
@@ -254,20 +231,33 @@ export async function handleMetaCatalogFeed({ request }: LoaderFunctionArgs) {
 ${xmlItems}
   </channel>
 </rss>`;
-
-	return new Response(rssXml, {
-		headers: {
-			"Content-Type": "application/xml; charset=utf-8",
-			"Cache-Control": "max-age=3600, s-maxage=3600",
-		},
-	});
+    return new Response(rss, { headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store" } });
+  } catch (error) {
+    console.error("Meta product feed read failed:", error);
+    return Response.json({ success: false, error: "Could not read the D1 product catalogue" }, { status: 503 });
+  }
 }
 
-export async function handleMetaWebhook({ request }: ActionFunctionArgs) {
-	try {
-		const payload = await request.json();
-		return Response.json({ success: true, received: true, payload });
-	} catch (e) {
-		return Response.json({ success: false, error: "Invalid webhook payload" }, { status: 400 });
-	}
+function toHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function handleMetaWebhook({ request, context }: ActionFunctionArgs) {
+  const secret = String(getWorkerEnv(context).META_APP_SECRET || "").trim();
+  if (!secret) return Response.json({ success: false, error: "Meta webhook secret is not configured" }, { status: 503 });
+  const rawBody = await request.text();
+  const supplied = request.headers.get("X-Hub-Signature-256") || "";
+  if (!supplied.startsWith("sha256=")) return Response.json({ success: false, error: "Missing Meta signature" }, { status: 401 });
+  try {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const expected = "sha256=" + toHex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)));
+    if (expected.length !== supplied.length) return Response.json({ success: false, error: "Invalid Meta signature" }, { status: 401 });
+    let difference = 0;
+    for (let i = 0; i < expected.length; i++) difference |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
+    if (difference !== 0) return Response.json({ success: false, error: "Invalid Meta signature" }, { status: 401 });
+    JSON.parse(rawBody);
+    return Response.json({ success: true, received: true }, { status: 202 });
+  } catch {
+    return Response.json({ success: false, error: "Invalid Meta webhook payload or signature" }, { status: 400 });
+  }
 }
