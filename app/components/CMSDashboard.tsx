@@ -158,8 +158,13 @@ export const CMSDashboard: React.FC = () => {
 		loadR2Status();
 	}, []);
 
+	useEffect(() => {
+		setSettingsForm(settings);
+	}, [settings]);
+
 	// Analytics calculations
-	const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
+	const totalRevenue = orders.reduce((sum, order) =>
+		sum + (order.paymentStatus === "paid" || (order.paymentMethod === "cod" && order.status === "delivered") ? order.total : 0), 0);
 	const pendingOrdersCount = orders.filter((o) => o.status === "pending" || o.status === "processing").length;
 	const lowStockProducts = products.filter((p) => p.stockQuantity < 15);
 
@@ -516,7 +521,7 @@ export const CMSDashboard: React.FC = () => {
 									<span className="text-xs font-bold text-[#8B5A2B]">د.إ AED</span>
 								</div>
 								<p className="text-[11px] text-emerald-700 font-medium pt-1">
-									+١٨٪ نمو في طلبات موسم الرطب والفقع
+									إجمالي المدفوعات المؤكدة فقط
 								</p>
 							</div>
 
