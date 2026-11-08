@@ -142,7 +142,8 @@ export async function createOrderInDb(
     ON CONFLICT(phone) DO UPDATE SET full_name = excluded.full_name, updated_at = CURRENT_TIMESTAMP
   `).bind(input.customerName.trim().slice(0, 160), phone).run();
   const customer = await db.prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1").bind(phone).first<{ id: number }>();
-  const customerId = customer?.id ?? null;
+  if (!customer || !Number.isSafeInteger(Number(customer.id))) throw new Error("Customer record could not be saved");
+  const customerId = Number(customer.id);
 
   // Save each distinct delivery address under the customer's private address book.
   const addressArea = String(input.area || "").trim().slice(0, 100);
