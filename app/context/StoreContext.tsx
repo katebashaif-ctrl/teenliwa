@@ -771,83 +771,54 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	const addOrder = async (
 		orderData: Omit<Order, "id" | "orderNumber" | "createdAt" | "status">,
 	): Promise<Order> => {
-		const tempId = `ord-${Date.now().toString(36)}`;
-		const orderNum = `AED-${Math.floor(1000 + Math.random() * 9000)}`;
+		const tempId = `pending-${Date.now().toString(36)}`;
 		const optimisticOrder: Order = {
 			...orderData,
 			id: tempId,
-			orderNumber: orderNum,
+			orderNumber: "Pending",
 			status: "pending",
 			createdAt: new Date().toISOString(),
 		};
-
-		// 1. Update UI immediately with optimistic record
 		setOrders((prev) => [optimisticOrder, ...prev]);
-		if (orderData.paymentMethod !== "ziina") {
-			clearCart();
-			setLastOrder(optimisticOrder);
-		}
 
-		// 2. Persist order to database (Cloudflare D1 SQL & R2 bucket)
 		try {
 			const res = await fetch("/api/orders", {
 				method: "POST",
+				credentials: "same-origin",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					intent: "create_order",
-					id: tempId,
-					orderNumber: orderNum,
-					...orderData,
+					customerName: orderData.customerName,
+					customerPhone: orderData.customerPhone,
+					customerEmirate: orderData.customerEmirate,
+					customerAddress: orderData.customerAddress,
+					notes: orderData.notes,
+					giftNote: orderData.giftNote,
+					paymentMethod: orderData.paymentMethod,
+					items: orderData.items.map((item) => ({
+						productId: item.productId,
+						quantity: item.quantity,
+						packagingOption: item.packagingOption,
+					})),
 				}),
 			});
-			const json = (await res.json()) as any;
-			if (json.success && json.order) {
-				const rawOrder = json.order.order ? json.order.order : json.order;
-				const savedOrder: Order = {
-					...optimisticOrder,
-					...rawOrder,
-					id: rawOrder.id || optimisticOrder.id,
-					orderNumber: rawOrder.orderNumber || optimisticOrder.orderNumber,
-				};
-				setOrders((prev) => prev.map((o) => (o.id === tempId ? savedOrder : o)));
-				if (orderData.paymentMethod !== "ziina") {
-					setLastOrder(savedOrder);
-				}
-				showToast(
-					t("toasts.orderSaved"),
-					`${t("orderSuccess.orderNumber")}: ${savedOrder.orderNumber}`
-				);
-
-				trackMetaEvent("Purchase", {
-					content_ids: savedOrder.items.map((i) => i.productId),
-					content_type: "product",
-					value: savedOrder.total,
-					currency: "AED",
-					num_items: savedOrder.items.reduce((s, i) => s + i.quantity, 0),
-				});
-
-				return savedOrder;
+			const json = await res.json() as any;
+			if (!res.ok || !json.success || !json.order) {
+				throw new Error(json.error || "The order could not be saved. Please try again.");
 			}
-		} catch (err) {
-			console.error("Failed to save order to database:", err);
-			showToast(
-				t("toasts.orderSaved"),
-				t("toasts.orderSavedMsg"),
-				"warning"
-			);
+			const rawOrder = json.order.order || json.order;
+			const savedOrder: Order = { ...rawOrder, items: rawOrder.items || [] };
+			setOrders((prev) => [savedOrder, ...prev.filter((order) => order.id !== tempId)]);
+			if (orderData.paymentMethod !== "ziina") {
+				clearCart();
+				setLastOrder(savedOrder);
+			}
+			showToast(t("toasts.orderSaved"), `${t("orderSuccess.orderNumber")}: ${savedOrder.orderNumber}`);
+			return savedOrder;
+		} catch (error) {
+			setOrders((prev) => prev.filter((order) => order.id !== tempId));
+			throw error instanceof Error ? error : new Error("Order could not be saved");
 		}
-
-		// Fallback tracking
-		trackMetaEvent("Purchase", {
-			content_ids: optimisticOrder.items.map((i) => i.productId),
-			content_type: "product",
-			value: optimisticOrder.total,
-			currency: "AED",
-			num_items: optimisticOrder.items.reduce((s, i) => s + i.quantity, 0),
-		});
-
-		showToast(t("toasts.orderReceived"), `${t("orderSuccess.orderNumber")}: ${orderNum}`);
-		return optimisticOrder;
 	};
 
 	const updateOrderStatus = async (orderId: string, status: Order["status"]) => {
