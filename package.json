@@ -41,10 +41,10 @@
 	"scripts": {
 		"build": "react-router build",
 		"cf-typegen": "wrangler types && react-router typegen",
-		"check": "tsc && react-router build && wrangler deploy --dry-run",
+		"check": "npm run typecheck && npm run build && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
 		"dev": "react-router dev --host 0.0.0.0 --port 3000",
-		"lint": "tsc --noEmit",
+		"lint": "npm run typecheck",
 		"preview": "npm run build && vite preview --host 0.0.0.0 --port 3000",
 		"typegen": "react-router typegen",
 		"typecheck": "npm run typegen && tsc -b"
