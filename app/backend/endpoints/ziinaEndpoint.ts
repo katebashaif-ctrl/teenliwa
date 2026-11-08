@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { getOrdersFromDb, updateOrderPaymentInDb } from "../../db/ordersDb";
 import { verifyAdminAuth } from "../../utils/adminAuth";
+import { getD1Database } from "../../db/d1";
 
 const ZIINA_API_BASE = "https://api-v2.ziina.com/api";
 
@@ -48,7 +49,7 @@ export async function handleZiinaStatus({ request, context }: LoaderFunctionArgs
 }
 
 export async function handleZiinaCreateIntent({ request, context }: ActionFunctionArgs) {
-  const d1 = (context as any)?.cloudflare?.env?.DB;
+  const d1 = getD1Database(context);
   try {
     const body = await request.json() as any;
     const config = getZiinaEnvConfig(context);
@@ -111,7 +112,7 @@ export async function handleZiinaCreateIntent({ request, context }: ActionFuncti
 }
 
 export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs) {
-  const d1 = (context as any)?.cloudflare?.env?.DB;
+  const d1 = getD1Database(context);
   const config = getZiinaEnvConfig(context);
   const url = new URL(request.url);
   const suppliedIntentId = url.searchParams.get("payment_intent_id") || url.searchParams.get("id") || "";
@@ -158,7 +159,7 @@ export async function handleZiinaVerify({ request, context }: LoaderFunctionArgs
 }
 
 export async function handleZiinaWebhook({ request, context }: ActionFunctionArgs) {
-  const d1 = (context as any)?.cloudflare?.env?.DB;
+  const d1 = getD1Database(context);
   const config = getZiinaEnvConfig(context);
   if (!d1 || !config.token) return Response.json({ success: false, error: "Payment processing is not configured" }, { status: 503 });
   if (!config.webhookSecret) return Response.json({ success: false, error: "Webhook secret is not configured" }, { status: 503 });
