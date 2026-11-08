@@ -44,9 +44,9 @@ export type CMSTabType =
 interface StoreContextType {
 	// Catalog
 	products: Product[];
-	addProduct: (product: Omit<Product, "id">) => void;
-	updateProduct: (id: string, updates: Partial<Product>) => Promise<void> | void;
-	deleteProduct: (id: string) => void;
+	addProduct: (product: Omit<Product, "id">) => Promise<boolean>;
+	updateProduct: (id: string, updates: Partial<Product>) => Promise<boolean>;
+	deleteProduct: (id: string) => Promise<boolean>;
 	toggleProductStock: (id: string) => void;
 
 	// Orders
@@ -500,10 +500,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (!response.ok || !data.success) throw new Error(data.error || "Product could not be saved");
 			await refreshProductsFromServer();
 			showToast(t("toasts.productAdded"), t("toasts.productAddedMsg"));
+			return true;
 		} catch (error) {
 			await refreshProductsFromServer();
 			showToast("تعذر حفظ المنتج", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
-			throw error;
+			return false;
 		}
 	};
 
@@ -533,10 +534,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (!response.ok || !data.success) throw new Error(data.error || "Product changes could not be saved");
 			await refreshProductsFromServer();
 			showToast(t("toasts.productUpdated"), t("toasts.productUpdatedMsg"));
+			return true;
 		} catch (error) {
 			await refreshProductsFromServer();
 			showToast("تعذر تحديث المنتج", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
-			throw error;
+			return false;
 		}
 	};
 
@@ -552,10 +554,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (!response.ok || !data.success) throw new Error(data.error || "Product could not be archived");
 			await refreshProductsFromServer();
 			showToast(t("toasts.productDeleted"), t("toasts.productDeletedMsg"), "info");
+			return true;
 		} catch (error) {
 			await refreshProductsFromServer();
 			showToast("تعذر حذف المنتج", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
-			throw error;
+			return false;
 		}
 	};
 
