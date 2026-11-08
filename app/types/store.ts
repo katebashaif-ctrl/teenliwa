@@ -32,6 +32,7 @@ export interface Product {
 	storageInstructions?: string;
 	inStock: boolean;
 	stockQuantity?: number;
+	trackInventory?: boolean;
 	badge?: string;
 	featured?: boolean;
 }
@@ -49,6 +50,7 @@ export interface OrderItem {
 	price: number;
 	unit: string;
 	packagingOption?: string;
+	trackInventory?: boolean;
 }
 
 export interface Order {
