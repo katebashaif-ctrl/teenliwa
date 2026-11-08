@@ -736,22 +736,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	};
 
 	const updateOrderStatus = async (orderId: string, status: Order["status"]) => {
-		setOrders((prev) =>
-			prev.map((o) => (o.id === orderId ? { ...o, status } : o)),
-		);
-		showToast(t("toasts.orderUpdated"), `${orderId}: ${status}`);
-
 		try {
-			await fetch("/api/orders", {
+			const response = await fetch("/api/orders", {
 				method: "PATCH",
-				headers: {
-					"Content-Type": "application/json",
-					...getAdminRequestHeaders(),
-				},
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 				body: JSON.stringify({ intent: "update_status", orderId, status }),
 			});
-		} catch (err) {
-			console.warn("Failed to update order status on server:", err);
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Order status could not be saved");
+			setOrders((prev) => prev.map((order) => order.id === orderId ? { ...order, status } : order));
+			showToast(t("toasts.orderUpdated"), `${orderId}: ${status}`);
+		} catch (error) {
+			showToast("تعذر تحديث الطلب", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await fetchOrdersFromDatabase();
 		}
 	};
 
@@ -799,20 +797,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	};
 
 	const deleteOrder = async (orderId: string) => {
-		setOrders((prev) => prev.filter((o) => o.id !== orderId));
-		showToast(t("toasts.orderDeleted"), t("toasts.orderDeletedMsg"), "info");
-
 		try {
-			await fetch("/api/orders", {
+			const response = await fetch("/api/orders", {
 				method: "DELETE",
-				headers: {
-					"Content-Type": "application/json",
-					...getAdminRequestHeaders(),
-				},
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 				body: JSON.stringify({ intent: "delete_order", orderId }),
 			});
-		} catch (err) {
-			console.warn("Failed to delete order on server:", err);
+			const data = await response.json() as any;
+			if (!response.ok || !data.success) throw new Error(data.error || "Order could not be archived");
+			setOrders((prev) => prev.filter((order) => order.id !== orderId));
+			showToast(t("toasts.orderDeleted"), t("toasts.orderDeletedMsg"), "info");
+		} catch (error) {
+			showToast("تعذر أرشفة الطلب", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
+			await fetchOrdersFromDatabase();
 		}
 	};
 
