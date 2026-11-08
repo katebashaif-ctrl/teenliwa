@@ -1,256 +1,184 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { getD1Database, getWorkerEnv, toFils } from "../../db/d1";
 import {
-  getOrdersFromDb,
-  createOrderInDb,
-  updateOrderStatusInDb,
-  updateOrderPaymentInDb,
-  deleteOrderFromDb,
+  getOrdersFromDb, createOrderInDb, updateOrderStatusInDb,
+  updateOrderPaymentInDb, deleteOrderFromDb,
 } from "../../db/ordersDb";
-import { verifyAdminAuth } from "../../utils/adminAuth";
 import { getProductsFromDb } from "../../db/productsDb";
+import { verifyAdminAuth } from "../../utils/adminAuth";
+
+async function settingAed(db: NonNullable<ReturnType<typeof getD1Database>>, key: string, fallback: number): Promise<number> {
+  const row = await db.prepare("SELECT setting_value FROM store_settings WHERE setting_key = ? LIMIT 1")
+    .bind(key).first<{ setting_value: string }>();
+  if (!row) return fallback;
+  try {
+    const parsed = JSON.parse(row.setting_value);
+    const value = Number(parsed);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+  } catch {
+    const value = Number(row.setting_value);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+  }
+}
 
 export async function handleOrdersLoader({ request, context }: LoaderFunctionArgs) {
   const auth = await verifyAdminAuth(request, context);
-  if (!auth.authorized) {
-    return Response.json(
-      {
-        success: false,
-        error: auth.reason || "Unauthorized. Admin access required.",
-        code: "UNAUTHORIZED",
-      },
-      {
-        status: 401,
-        headers: { "WWW-Authenticate": 'Bearer realm="Admin Area"' },
-      }
-    );
-  }
-
-  const d1 = (context as any)?.cloudflare?.env?.DB;
-  const url = new URL(request.url);
-  const statusFilter = url.searchParams.get("status");
-  const searchQuery = url.searchParams.get("q")?.toLowerCase();
-
+  if (!auth.authorized) return Response.json({ success: false, error: "Admin access required", code: "UNAUTHORIZED" }, { status: 401 });
+  const db = getD1Database(context);
+  if (!db) return Response.json({ success: false, error: "Order database is unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   try {
-    if (!d1) return Response.json({ success:false, error:"Order database is unavailable" }, { status:503, headers:{ "Cache-Control":"no-store" } });
-    const { orders, storageType } = await getOrdersFromDb(d1);
-    if (storageType !== "d1_database") return Response.json({ success:false, error:"Order database is temporarily unavailable" }, { status:503, headers:{ "Cache-Control":"no-store" } });
-
+    const { orders, storageType } = await getOrdersFromDb(db);
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status");
+    const query = url.searchParams.get("q")?.toLowerCase();
     let filtered = orders;
-    if (statusFilter && statusFilter !== "all") {
-      filtered = filtered.filter((o) => o.status === statusFilter);
-    }
-    if (searchQuery) {
-      filtered = filtered.filter(
-        (o) =>
-          o.id.toLowerCase().includes(searchQuery) ||
-          o.orderNumber.toLowerCase().includes(searchQuery) ||
-          o.customerName.toLowerCase().includes(searchQuery) ||
-          o.customerPhone.includes(searchQuery) ||
-          o.customerEmirate.toLowerCase().includes(searchQuery)
-      );
-    }
-
-    return Response.json({
-      success: true,
-      count: filtered.length,
-      totalRevenue: filtered.reduce((sum, o) => sum + (o.status !== "cancelled" ? o.total : 0), 0),
-      storageType,
-      orders: filtered,
-    }, { headers:{ "Cache-Control":"no-store, no-cache, must-revalidate", Pragma:"no-cache" } });
-  } catch (error) {
-    console.error("Error fetching orders from database:", error);
-    return Response.json(
-      {
-        success: false,
-        error: "Failed to retrieve orders from database",
-        detail: error instanceof Error ? error.message : "unknown",
-      },
-      { status: 500 }
+    if (status && status !== "all") filtered = filtered.filter((o) => o.status === status);
+    if (query) filtered = filtered.filter((o) =>
+      o.id.toLowerCase().includes(query) || o.orderNumber.toLowerCase().includes(query) ||
+      o.customerName.toLowerCase().includes(query) || o.customerPhone.includes(query) ||
+      o.customerEmirate.toLowerCase().includes(query)
     );
+    return Response.json({
+      success: true, count: filtered.length, storageType,
+      totalRevenue: filtered.reduce((sum, order) =>
+        sum + (order.paymentStatus === "paid" || (order.paymentMethod === "cod" && order.status === "delivered") ? order.total : 0), 0),
+      orders: filtered,
+    }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate", Pragma: "no-cache" } });
+  } catch (error) {
+    console.error("D1 orders read failed:", error);
+    return Response.json({ success: false, error: "Failed to retrieve orders" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }
 
 export async function handleOrdersAction({ request, context }: ActionFunctionArgs) {
-  const d1 = (context as any)?.cloudflare?.env?.DB;
-
+  const db = getD1Database(context);
+  if (!db) return Response.json({ success: false, error: "Order database is unavailable" }, { status: 503 });
   let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
-  }
-
+  try { body = await request.json(); }
+  catch { return Response.json({ success: false, error: "Invalid JSON payload" }, { status: 400 }); }
   const method = request.method.toUpperCase();
   const intent = body.intent || (method === "POST" ? "create_order" : method === "PATCH" ? "update_status" : "delete_order");
 
+  // Checkout accepts product identifiers and quantities only. All prices and fees are server-derived.
   if (intent === "create_order") {
-    const orderData = body;
-    if (!orderData.customerName || !orderData.customerPhone || !Array.isArray(orderData.items)) {
-      return Response.json(
-        { success: false, error: "Missing required order data (name, phone, items)" },
-        { status: 400 }
-      );
+    const data = body;
+    const customerName = String(data.customerName || "").trim();
+    const customerPhone = String(data.customerPhone || "").trim();
+    const emirate = String(data.customerEmirate || "").trim();
+    const address = String(data.customerAddress || "").trim();
+    if (!customerName || !customerPhone || !emirate || !address ||
+        !Array.isArray(data.items) || data.items.length < 1 || data.items.length > 50) {
+      return Response.json({ success: false, error: "Customer details and 1-50 order items are required" }, { status: 400 });
     }
-
     try {
-      if (!d1) return Response.json({ success: false, error: "Order storage is unavailable" }, { status: 503 });
-      if (orderData.items.length < 1 || orderData.items.length > 50) return Response.json({ success: false, error: "Invalid item count" }, { status: 400 });
-      const productResult = await getProductsFromDb(d1);
-      if (productResult.storageType !== "d1_database") return Response.json({ success:false, error:"The live product catalog could not be loaded. Please retry later." }, { status:503 });
-      const products = productResult.products;
-      const productMap = new Map(products.map((product: any) => [String(product.id), product]));
-      const items = orderData.items.map((item: any) => {
-        const product = productMap.get(String(item.productId || item.id || item.product?.id || ""));
+      const catalog = await getProductsFromDb(db, false);
+      const byId = new Map(catalog.products.map((product) => [String(product.id), product]));
+      const normalizedItems = data.items.map((item: any) => {
+        const productId = String(item.productId || item.id || item.product?.id || "");
+        const product = byId.get(productId);
         const quantity = Number(item.quantity);
-        const price = Number(product?.price);
-        if (!product || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100 || product.inStock === false || !Number.isFinite(price) || price < 0) throw new Error("Invalid or unavailable product");
-        if (Number.isFinite(product.stockQuantity) && quantity > Number(product.stockQuantity)) throw new Error("Insufficient stock");
-        return { productId: product.id, name: product.name, quantity, price, unit: product.unit || item.unit || "piece", packagingOption: item.packagingOption };
+        if (!product || !Number.isSafeInteger(quantity) || quantity < Number(product.minQty || 1) ||
+            quantity > Number(product.maxQty || 50) || product.inStock === false ||
+            (Number.isFinite(product.stockQuantity) && quantity > Number(product.stockQuantity))) {
+          throw new Error("One or more products are unavailable or have an invalid quantity");
+        }
+        return {
+          productId: product.id,
+          name: product.name,
+          quantity,
+          price: Number(product.price),
+          unit: product.unit || "item",
+          packagingOption: typeof item.packagingOption === "string" ? item.packagingOption.slice(0, 80) : undefined,
+        };
       });
-      const subtotal = items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
-      const env = (context as any)?.cloudflare?.env || {};
-      const configuredThreshold = Number(env.FREE_DELIVERY_THRESHOLD ?? 250);
-      const configuredDeliveryFee = Number(env.STANDARD_DELIVERY_FEE ?? 30);
-      const freeThreshold = Number.isFinite(configuredThreshold) ? Math.max(0, configuredThreshold) : 250;
-      const deliveryFeeAmount = Number.isFinite(configuredDeliveryFee) ? Math.max(0, configuredDeliveryFee) : 30;
-      const deliveryFee = subtotal >= freeThreshold ? 0 : deliveryFeeAmount;
-      if (!Number.isFinite(subtotal) || !Number.isSafeInteger(Math.round(subtotal * 100)) || subtotal > 1000000) throw new Error("Invalid order total");
-      const paymentMethod = ["ziina", "cod", "card_on_delivery", "whatsapp"].includes(orderData.paymentMethod) ? orderData.paymentMethod : "cod";
+      const subtotal = normalizedItems.reduce((sum, item) => sum + toFils(item.price) * item.quantity, 0) / 100;
+      if (!Number.isFinite(subtotal) || subtotal > 100000) throw new Error("Order subtotal is outside the supported range");
+
+      const env = getWorkerEnv(context);
+      const standardFeeFallback = Number(env.STANDARD_DELIVERY_FEE ?? 30);
+      const thresholdFallback = Number(env.FREE_DELIVERY_THRESHOLD ?? 250);
+      const standardFee = await settingAed(db, "standardDeliveryFee", Number.isFinite(standardFeeFallback) ? standardFeeFallback : 30);
+      const freeThreshold = await settingAed(db, "freeDeliveryThreshold", Number.isFinite(thresholdFallback) ? thresholdFallback : 250);
+      const zone = await db.prepare(`
+        SELECT id, emirate, area, delivery_fee_fils, free_delivery_threshold_fils
+        FROM delivery_zones
+        WHERE is_active = 1 AND lower(emirate) = lower(?)
+          AND (area IS NULL OR area = ?)
+        ORDER BY CASE WHEN area = ? THEN 0 ELSE 1 END
+        LIMIT 1
+      `).bind(emirate, String(data.area || "").trim(), String(data.area || "").trim())
+        .first<{ id: number; emirate: string; area: string | null; delivery_fee_fils: number; free_delivery_threshold_fils: number | null }>();
+      const feeAed = zone ? Number(zone.delivery_fee_fils) / 100 : standardFee;
+      const freeAed = zone?.free_delivery_threshold_fils == null ? freeThreshold : Number(zone.free_delivery_threshold_fils) / 100;
+      const deliveryFee = subtotal >= freeAed ? 0 : feeAed;
+      const paymentMethod = ["ziina", "cod", "card_on_delivery", "whatsapp"].includes(data.paymentMethod) ? data.paymentMethod : "cod";
+
       const normalizedOrder: any = {
-        customerName: String(orderData.customerName).trim().slice(0, 120),
-        customerPhone: String(orderData.customerPhone).trim().slice(0, 40),
-        customerEmirate: String(orderData.customerEmirate || "").trim().slice(0, 80),
-        customerAddress: String(orderData.customerAddress || "").trim().slice(0, 500),
-        notes: String(orderData.notes || "").trim().slice(0, 1000),
-        giftNote: String(orderData.giftNote || "").trim().slice(0, 500),
-        items, subtotal, deliveryFee, discount: 0, total: subtotal + deliveryFee,
-        paymentMethod, paymentStatus: "pending", status: "pending"
+        customerName: customerName.slice(0, 160),
+        customerPhone: customerPhone.slice(0, 30),
+        customerEmirate: emirate.slice(0, 80),
+        customerAddress: address.slice(0, 700),
+        notes: String(data.notes || "").trim().slice(0, 1000),
+        giftNote: String(data.giftNote || "").trim().slice(0, 500),
+        items: normalizedItems,
+        subtotal,
+        deliveryFee,
+        discount: 0,
+        total: subtotal + deliveryFee,
+        paymentMethod,
+        paymentStatus: "pending",
+        status: paymentMethod === "ziina" ? "awaiting_payment" : "pending",
       };
-      if (!normalizedOrder.customerName || !normalizedOrder.customerPhone || !normalizedOrder.customerAddress) return Response.json({ success: false, error: "Customer name, phone and address are required" }, { status: 400 });
-      const result = await createOrderInDb(normalizedOrder, d1);
-      if (!result.dbSaved) return Response.json({ success:false, error:"Order could not be durably saved. Please retry." }, { status:503 });
+      const result = await createOrderInDb(normalizedOrder, db);
       return Response.json({
         success: true,
         message: "Order placed and saved successfully",
         order: result.order,
         dbSaved: result.dbSaved,
-        r2Synced: result.r2Synced,
         storageType: result.storageType,
-      });
-    } catch (err) {
-      console.error("Error creating order in DB:", err);
-      return Response.json(
-        {
-          success: false,
-          error: "Failed to persist order in database",
-          detail: err instanceof Error ? err.message : "unknown",
-        },
-        { status: 500 }
-      );
+      }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+      console.error("Order creation failed:", error);
+      return Response.json({ success: false, error: error instanceof Error ? error.message : "Failed to create order" }, { status: 400 });
     }
   }
 
-  // Admin routes for updating/deleting orders
+  // All remaining actions mutate private records and require a signed admin session.
   const auth = await verifyAdminAuth(request, context);
-  if (!auth.authorized) {
-    return Response.json(
-      { success: false, error: "Unauthorized. Admin credentials required.", code: "UNAUTHORIZED" },
-      { status: 401 }
-    );
-  }
-  if (!d1) return Response.json({ success:false, error:"Order database is unavailable" }, { status:503 });
+  if (!auth.authorized) return Response.json({ success: false, error: "Unauthorized. Admin credentials required.", code: "UNAUTHORIZED" }, { status: 401 });
 
   if (intent === "update_payment") {
-    const { orderId, paymentStatus, ziinaPaymentIntentId, ziinaRedirectUrl, transactionId, cardBrand, cardLastFour, orderStatus } = body;
-    if (!orderId) {
-      return Response.json({ success: false, error: "orderId required" }, { status: 400 });
+    const { orderId, paymentStatus, ziinaPaymentIntentId, ziinaRedirectUrl, transactionId, orderStatus } = body;
+    if (!orderId || !["paid", "failed", "pending", "cancelled"].includes(paymentStatus)) {
+      return Response.json({ success: false, error: "Valid orderId and paymentStatus are required" }, { status: 400 });
     }
-    if (!["paid", "failed", "pending", "cancelled"].includes(paymentStatus || "pending")) return Response.json({ success:false, error:"Invalid payment status" }, { status:400 });
-
-    try {
-      const saved = await updateOrderPaymentInDb(
-        orderId,
-        paymentStatus || "pending",
-        {
-          ziinaPaymentIntentId,
-          ziinaRedirectUrl,
-          transactionId,
-          cardBrand,
-          cardLastFour,
-          orderStatus,
-        },
-        d1
-      );
-      if (!saved) return Response.json({ success:false, error:"Payment update could not be persisted" }, { status:503 });
-      return Response.json({
-        success: true,
-        message: "Order payment details updated successfully",
-        orderId,
-      });
-    } catch (err) {
-      return Response.json(
-        {
-          success: false,
-          error: "Failed to update order payment details",
-          detail: err instanceof Error ? err.message : "unknown",
-        },
-        { status: 500 }
-      );
-    }
+    const saved = await updateOrderPaymentInDb(String(orderId), paymentStatus, {
+      ziinaPaymentIntentId, ziinaRedirectUrl, transactionId, orderStatus,
+    }, db);
+    return saved
+      ? Response.json({ success: true, message: "Payment update saved" })
+      : Response.json({ success: false, error: "Payment update could not be saved" }, { status: 503 });
   }
 
   if (intent === "update_status" || method === "PATCH") {
     const { orderId, status } = body;
-    if (!orderId || !status) {
-      return Response.json({ success: false, error: "orderId and status required" }, { status: 400 });
+    if (!orderId || !["pending", "processing", "shipped", "delivered", "cancelled"].includes(status)) {
+      return Response.json({ success: false, error: "Valid orderId and status are required" }, { status: 400 });
     }
-    if (!["pending", "processing", "shipped", "delivered", "cancelled"].includes(status)) return Response.json({ success:false, error:"Invalid order status" }, { status:400 });
-
-    try {
-      const updated = await updateOrderStatusInDb(orderId, status, d1);
-      if (!updated) return Response.json({ success:false, error:"Order status was not saved" }, { status:503 });
-      return Response.json({
-        success: true,
-        message: `Order status updated to: ${status}`,
-        order: updated,
-      });
-    } catch (err) {
-      return Response.json(
-        {
-          success: false,
-          error: "Failed to update order status",
-          detail: err instanceof Error ? err.message : "unknown",
-        },
-        { status: 500 }
-      );
-    }
+    const updated = await updateOrderStatusInDb(String(orderId), status, db);
+    return updated
+      ? Response.json({ success: true, message: "Order status updated", orderId })
+      : Response.json({ success: false, error: "Order status was not saved" }, { status: 503 });
   }
 
   if (intent === "delete_order" || method === "DELETE") {
     const { orderId } = body;
-    if (!orderId) {
-      return Response.json({ success: false, error: "orderId required" }, { status: 400 });
-    }
-
-    try {
-      const deleted = await deleteOrderFromDb(orderId, d1);
-      if (!deleted) return Response.json({ success:false, error:"Order could not be deleted from D1" }, { status:503 });
-      return Response.json({
-        success: true,
-        message: "Order deleted successfully",
-        orderId,
-      });
-    } catch (err) {
-      return Response.json(
-        {
-          success: false,
-          error: "Failed to delete order",
-          detail: err instanceof Error ? err.message : "unknown",
-        },
-        { status: 500 }
-      );
-    }
+    if (!orderId) return Response.json({ success: false, error: "orderId is required" }, { status: 400 });
+    const deleted = await deleteOrderFromDb(String(orderId), db);
+    return deleted
+      ? Response.json({ success: true, message: "Order archived", orderId })
+      : Response.json({ success: false, error: "Order could not be archived" }, { status: 404 });
   }
 
-  return Response.json({ success: false, error: `Unsupported intent: ${intent}` }, { status: 400 });
+  return Response.json({ success: false, error: "Unsupported order intent" }, { status: 400 });
 }
