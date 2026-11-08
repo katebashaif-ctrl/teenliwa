@@ -262,11 +262,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			if (json.success && Array.isArray(json.products)) {
 				const nextProducts = json.products as Product[];
 				setProducts(nextProducts);
-				if (isClient) {
-					try {
-						localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(nextProducts));
-					} catch (e) {}
-				}
 				return true;
 			}
 		} catch (err) {
