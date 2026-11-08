@@ -89,6 +89,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
           price: Number(product.price),
           unit: product.unit || "item",
           packagingOption: typeof item.packagingOption === "string" ? item.packagingOption.slice(0, 80) : undefined,
+          trackInventory: product.trackInventory === true,
         };
       });
       const subtotal = normalizedItems.reduce((sum, item) => sum + toFils(item.price) * item.quantity, 0) / 100;
