@@ -1,362 +1,148 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { AwsClient } from "aws4fetch";
-
-interface R2Config {
-  accountId: string;
-  token: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  bucket: string;
-  endpoint: string;
-  publicUrl: string;
-}
-
 import { verifyAdminAuth } from "../../utils/adminAuth";
 
-const CFG: R2Config = {
-  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
-  token: process.env.CLOUDFLARE_API_TOKEN || "",
-  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "",
-  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "",
-  bucket: process.env.CLOUDFLARE_R2_BUCKET || "bt-liwa",
-  endpoint:
-    process.env.CLOUDFLARE_R2_ENDPOINT && process.env.CLOUDFLARE_R2_ENDPOINT.includes("r2.cloudflarestorage.com")
-      ? process.env.CLOUDFLARE_R2_ENDPOINT.replace(/\/+$/, "")
-      : (process.env.CLOUDFLARE_ACCOUNT_ID ? `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com` : ""),
-  publicUrl: (process.env.CLOUDFLARE_R2_PUBLIC_URL || "").replace(/\/+$/, ""),
-};
-
-function getR2Client(): AwsClient | null {
-  if (!CFG.accessKeyId || !CFG.secretAccessKey || !CFG.endpoint || !CFG.bucket) return null;
-  return new AwsClient({
-    accessKeyId: CFG.accessKeyId,
-    secretAccessKey: CFG.secretAccessKey,
-    service: "s3",
-    region: "auto",
-  });
+interface R2ObjectLike {
+  body: ReadableStream;
+  httpMetadata?: { contentType?: string; cacheControl?: string };
+  etag?: string;
+  size?: number;
+  key?: string;
+}
+interface R2BucketLike {
+  get(key: string): Promise<R2ObjectLike | null>;
+  put(key: string, value: ArrayBuffer | ArrayBufferView | string | ReadableStream, options?: any): Promise<any>;
+  list(options?: any): Promise<{ objects?: Array<{ key: string; size: number; uploaded: Date }> }>;
 }
 
-function sanitizePublicCatalog(value: any): any {
-  if (Array.isArray(value)) return value.map(sanitizePublicCatalog);
-  if (!value || typeof value !== "object") return value;
-  const output: Record<string, any> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (["orders", "leads", "metaConfig", "mcpConfig", "adminConfig"].includes(key)) continue;
-    if (/(access.?token|api.?key|secret|password|authorization|webhook.?secret)/i.test(key)) continue;
-    output[key] = sanitizePublicCatalog(entry);
-  }
-  return output;
+function getBucket(context?: any): R2BucketLike | null {
+  const bucket = context?.cloudflare?.env?.BUCKET;
+  return bucket && typeof bucket.get === "function" && typeof bucket.put === "function"
+    ? bucket as R2BucketLike : null;
 }
-function getMimeType(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "png":
-      return "image/png";
-    case "webp":
-      return "image/webp";
-    case "gif":
-      return "image/gif";
-    case "json":
-      return "application/json";
-    default:
-      return "application/octet-stream";
-  }
+
+function getBucketName(context?: any): string {
+  return String(context?.cloudflare?.env?.R2_BUCKET || "bt-liwa");
+}
+
+function safeImageKey(value: string): boolean {
+  const normalized = value.replace(/^\/+/, "");
+  const parts = normalized.split("/");
+  return !value.includes("..") && !value.includes("%") && !value.includes("\\") &&
+    parts.length >= 2 && parts.every((part) => part && part !== "." && part !== "..") &&
+    /^(images|products)\//.test(normalized) && /\.(jpg|jpeg|png|webp|gif)$/i.test(normalized);
+}
+
+function mimeType(key: string): string {
+  const ext = key.split(".").pop()?.toLowerCase();
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  return "application/octet-stream";
 }
 
 export async function handleR2Loader({ request, context }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const key = url.searchParams.get("key") || url.searchParams.get("file");
-  const intent = url.searchParams.get("intent");
-  const normalizedImageKey = (key || "").replace(/^\/+/, "");
-  const imageSegments = normalizedImageKey.split("/");
-  const safeImageSegments = imageSegments.length >= 2 && imageSegments.every((segment) => segment && segment !== "." && segment !== ".." && !segment.includes("%"));
-  const publicImageKey = Boolean(key && !key.includes("..") && !key.includes("%") && !key.includes("\\") && safeImageSegments && /^(images|products)\//.test(normalizedImageKey) && /\.(jpg|jpeg|png|webp|gif)$/i.test(normalizedImageKey));
-  if (!publicImageKey && intent !== "get_catalog") {
-    const auth = await verifyAdminAuth(request, context);
-    if (!auth.authorized) return Response.json({ success:false, error:auth.reason || "Unauthorized" }, { status:401 });
-  }
-  if (key && !publicImageKey) return Response.json({ success:false, error:"Private object" }, { status:404 });
-  const r2 = getR2Client();
+  const bucket = getBucket(context);
 
-  // 1. Direct object streaming from R2
+  // Only explicitly allowlisted image objects are public. All other object keys are private.
   if (key) {
-    if (!r2) {
-      return new Response("Cloudflare R2 credentials not configured", { status: 503 });
-    }
-
+    if (!safeImageKey(key)) return Response.json({ success: false, error: "Private object" }, { status: 404 });
+    if (!bucket) return Response.json({ success: false, error: "Image storage is unavailable" }, { status: 503 });
     try {
-      const cleanKey = key.replace(/^\/+/, "");
-      const objUrl = `${CFG.endpoint}/${CFG.bucket}/${cleanKey}`;
-      const s3Res = await r2.fetch(objUrl);
-
-      if (!s3Res.ok) {
-        return new Response(`File not found in R2: ${s3Res.status}`, { status: s3Res.status });
-      }
-
-      const mimeType = getMimeType(cleanKey);
-
-      return new Response(s3Res.body, {
-        status: 200,
+      const object = await bucket.get(key.replace(/^\/+/, ""));
+      if (!object) return new Response("Not found", { status: 404 });
+      return new Response(object.body, {
         headers: {
-          "Content-Type": mimeType,
+          "Content-Type": object.httpMetadata?.contentType || mimeType(key),
           "X-Content-Type-Options": "nosniff",
           "Cache-Control": "public, max-age=31536000, immutable",
-          "Access-Control-Allow-Origin": "*",
+          ...(object.etag ? { ETag: object.etag } : {}),
         },
       });
-    } catch (e) {
-      return new Response(e instanceof Error ? e.message : "Error streaming from R2", { status: 500 });
+    } catch (error) {
+      console.error("R2 image read failed:", error);
+      return new Response("Image storage error", { status: 503 });
     }
   }
 
-  // 2. Fetch remote or local catalog
-  if (intent === "get_catalog") {
-    if (r2) {
-      try {
-        const catalogUrl = `${CFG.endpoint}/${CFG.bucket}/data/store.json`;
-        const res = await r2.fetch(catalogUrl);
-
-        if (res.ok) {
-          const text = await res.text();
-          const data = sanitizePublicCatalog(JSON.parse(text));
-
-          return Response.json({
-            success: true,
-            fromR2: true,
-            data,
-            message: "Catalog fetched from Cloudflare R2",
-          }, { headers: { "Cache-Control":"no-store" } });
-        }
-      } catch (err) {
-        console.warn("R2 catalog fetch exception, checking local fallback:", err);
-      }
-    }
-
-
-    return Response.json({
-      success: false,
-      fromR2: false,
-      s3Configured: r2 !== null,
-      message: "No remote or local catalog found",
+  // Catalog data is stored in D1 now, never read from a public JSON object in R2.
+  if (url.searchParams.get("intent") === "get_catalog") {
+    return Response.json({ success: false, fromR2: false, message: "The catalogue is served from the D1 database." }, {
+      status: 410, headers: { "Cache-Control": "no-store" },
     });
   }
 
-  // 3. Status probe
-  const s3Configured = r2 !== null;
-  let connected = false;
-  let remoteObjectsCount = 0;
-  let remoteImages: string[] = [];
-  let listError: string | null = null;
-  let latencyMs = 0;
+  const auth = await verifyAdminAuth(request, context);
+  if (!auth.authorized) return Response.json({ success: false, error: auth.reason || "Unauthorized" }, { status: 401 });
+  if (!bucket) return Response.json({ success: false, connected: false, s3Configured: false, bucket: getBucketName(context), listError: "R2 bucket binding BUCKET is unavailable" }, { status: 503 });
 
-  if (r2) {
-    const t0 = Date.now();
-    try {
-      const listUrl = `${CFG.endpoint}/${CFG.bucket}?list-type=2&max-keys=200`;
-      const res = await r2.fetch(listUrl);
-      latencyMs = Date.now() - t0;
-      if (res.ok) {
-        connected = true;
-        const xml = await res.text();
-        const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]);
-        remoteObjectsCount = keys.length;
-        remoteImages = keys
-          .filter((k) => /^(images|products)\//.test(k) && /\.(jpg|jpeg|png|webp|gif)$/i.test(k))
-          .map((k) => `/api/r2?key=${encodeURIComponent(k)}`);
-      } else {
-        listError = `LIST HTTP ${res.status}`;
-      }
-    } catch (e) {
-      latencyMs = Date.now() - t0;
-      listError = e instanceof Error ? e.message : "Connection error";
-    }
-  } else {
-    listError = "Secret Access Key not configured";
+  try {
+    const listing = await bucket.list({ limit: 200 });
+    const objects = listing.objects || [];
+    const remoteImages = objects
+      .map((object) => object.key)
+      .filter((objectKey) => safeImageKey(objectKey))
+      .map((objectKey) => "/api/r2?key=" + encodeURIComponent(objectKey));
+    return Response.json({
+      success: true, connected: true, s3Configured: true, bucket: getBucketName(context),
+      accountId: "", endpoint: "", publicUrl: "", publicUrlConfigured: false,
+      accessKeyConfigured: true, hasSecretKey: true, remoteObjectsCount: objects.length,
+      remoteImages, latencyMs: 0, listError: null, persistedOnDisk: false,
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    console.error("R2 bucket listing failed:", error);
+    return Response.json({
+      success: false, connected: false, s3Configured: true, bucket: getBucketName(context),
+      remoteObjectsCount: 0, remoteImages: [], listError: "Could not list R2 objects",
+    }, { status: 503 });
   }
-
-  return Response.json({
-    success: true,
-    connected,
-    s3Configured,
-    publicUrlConfigured: false,
-    bucket: CFG.bucket,
-    accountId: CFG.accountId,
-    accessKeyConfigured: Boolean(CFG.accessKeyId),
-    endpoint: CFG.endpoint,
-    publicUrl: "",
-    hasSecretKey: Boolean(CFG.secretAccessKey),
-    remoteObjectsCount,
-    remoteImages,
-    latencyMs,
-    listError,
-    persistedOnDisk: false,
-  });
 }
 
 export async function handleR2Action({ request, context }: ActionFunctionArgs) {
   const auth = await verifyAdminAuth(request, context);
-  if (!auth.authorized) return Response.json({ success:false, error:auth.reason || "Unauthorized" }, { status:401 });
-  let body: {
-    intent?: string;
-    data?: unknown;
-    imageName?: string;
-    imageBase64?: string;
-    config?: Partial<R2Config>;
-  };
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ success: false, error: "Invalid JSON" }, { status: 400 });
-  }
+  if (!auth.authorized) return Response.json({ success: false, error: auth.reason || "Unauthorized" }, { status: 401 });
+  let body: { intent?: string; imageName?: string; imageBase64?: string };
+  try { body = await request.json(); }
+  catch { return Response.json({ success: false, error: "Invalid JSON" }, { status: 400 }); }
 
-  // A. Save R2 Configuration (persisted to app/data/r2-config.json)
   if (body.intent === "save_r2_config") {
-    return Response.json({ success:false, error:"Configure R2 credentials as Cloudflare Worker secrets; this API does not accept or store credentials." }, { status:400 });
+    return Response.json({ success: false, error: "R2 credentials are managed by Cloudflare bindings and cannot be saved from the browser." }, { status: 400 });
   }
-
-  const r2 = getR2Client();
-
-  // B. Sync catalog to R2. Worker-local files are not durable storage.
   if (body.intent === "sync_catalog") {
-    if (!r2) {
-      return Response.json({ success:false, r2Synced:false, localSynced:false, error:"R2 Worker secrets are not configured" }, { status:503 });
-    }
-
-    const t0 = Date.now();
-    try {
-      const putUrl = `${CFG.endpoint}/${CFG.bucket}/data/store.json`;
-      const putRes = await r2.fetch(putUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-        },
-        body: JSON.stringify(sanitizePublicCatalog(body.data), null, 2),
-      });
-
-      const latencyMs = Date.now() - t0;
-
-      if (!putRes.ok) {
-        return Response.json(
-          {
-            success: false,
-            r2Synced: false,
-            localSynced: false,
-            latencyMs,
-            error: `Failed to save to R2: HTTP ${putRes.status}`,
-            detail: (await putRes.text()).slice(0, 400),
-          },
-          { status: 502 }
-        );
-      }
-
-      return Response.json({
-        success: true,
-        r2Synced: true,
-        localSynced: false,
-        latencyMs,
-        message: "Catalog synced successfully to Cloudflare R2 (data/store.json)",
-      });
-    } catch (e) {
-      return Response.json(
-        {
-          success: false,
-          r2Synced: false,
-          localSynced: false,
-          error: "Exception uploading to R2",
-          detail: e instanceof Error ? e.message : "unknown",
-        },
-        { status: 500 }
-      );
-    }
+    return Response.json({ success: false, r2Synced: false, localSynced: false, error: "The product catalogue is stored in D1; R2 is only for image objects." }, { status: 410 });
+  }
+  if (body.intent !== "upload_base64") {
+    return Response.json({ success: false, error: "Unsupported R2 operation" }, { status: 400 });
   }
 
-  // C. Upload Base64 Image to Cloudflare R2
-  if (body.intent === "upload_base64") {
-    if (!body.imageBase64) {
-      return Response.json({ success: false, error: "imageBase64 is required" }, { status: 400 });
-    }
+  const bucket = getBucket(context);
+  if (!bucket) return Response.json({ success: false, error: "R2 bucket binding BUCKET is unavailable" }, { status: 503 });
+  if (!body.imageBase64) return Response.json({ success: false, error: "imageBase64 is required" }, { status: 400 });
+  if (body.imageBase64.length > 7 * 1024 * 1024) return Response.json({ success: false, error: "Image exceeds the 5 MB upload limit" }, { status: 413 });
 
-    if (body.imageBase64.length > 7 * 1024 * 1024) return Response.json({ success:false, error:"Image exceeds the 5 MB upload limit" }, { status:413 });
-    const m = body.imageBase64.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/i);
-    if (!m) {
-      return Response.json({ success: false, error: "Invalid Base64 format" }, { status: 400 });
-    }
-    const extRaw = m[1].toLowerCase();
+  const match = body.imageBase64.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return Response.json({ success: false, error: "Invalid Base64 image" }, { status: 400 });
+  try {
+    const extRaw = match[1].toLowerCase();
     const ext = extRaw === "jpeg" ? "jpg" : extRaw;
-    const contentType = `image/${extRaw === "jpg" ? "jpeg" : extRaw}`;
-    const base64Data = m[2];
-
-    const safeName = (body.imageName || "product").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filename = `${Date.now()}-${safeName}.${ext}`;
-    const r2Key = `products/${filename}`;
-
-    if (!r2) {
-      return Response.json(
-        {
-          success: false,
-          r2Synced: false,
-          error: "Cloudflare R2 keys not configured",
-        },
-        { status: 503 }
-      );
-    }
-
-    try {
-      const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-      if (bytes.byteLength > 5 * 1024 * 1024) return Response.json({ success:false, error:"Image exceeds the 5 MB upload limit" }, { status:413 });
-      const putUrl = `${CFG.endpoint}/${CFG.bucket}/${r2Key}`;
-
-      const putRes = await r2.fetch(putUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": contentType,
-          "Cache-Control": "public, max-age=31536000, immutable",
-        },
-        body: bytes,
-      });
-
-      if (!putRes.ok) {
-        return Response.json(
-          {
-            success: false,
-            r2Synced: false,
-            error: `R2 PUT failed: HTTP ${putRes.status}`,
-            detail: (await putRes.text()).slice(0, 500),
-          },
-          { status: 502 }
-        );
-      }
-
-      const finalImageUrl = `/api/r2?key=${encodeURIComponent(r2Key)}`;
-
-      return Response.json({
-        success: true,
-        r2Synced: true,
-        key: r2Key,
-        filename,
-        url: finalImageUrl,
-        isR2Hosted: true,
-        message: "Image uploaded to Cloudflare R2",
-      });
-    } catch (e) {
-      return Response.json(
-        {
-          success: false,
-          r2Synced: false,
-          error: "Exception uploading to R2",
-          detail: e instanceof Error ? e.message : "unknown",
-        },
-        { status: 500 }
-      );
-    }
+    const contentType = extRaw === "jpg" ? "image/jpeg" : "image/" + extRaw;
+    const bytes = Uint8Array.from(atob(match[2]), (char) => char.charCodeAt(0));
+    if (bytes.byteLength > 5 * 1024 * 1024) return Response.json({ success: false, error: "Image exceeds the 5 MB upload limit" }, { status: 413 });
+    const safeName = String(body.imageName || "product").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+    const filename = Date.now().toString(36) + "-" + safeName + "." + ext;
+    const key = "products/" + filename;
+    await bucket.put(key, bytes, {
+      httpMetadata: { contentType, cacheControl: "public, max-age=31536000, immutable" },
+    });
+    return Response.json({
+      success: true, r2Synced: true, key, filename,
+      url: "/api/r2?key=" + encodeURIComponent(key), isR2Hosted: true,
+      message: "Image uploaded to Cloudflare R2",
+    });
+  } catch (error) {
+    console.error("R2 image upload failed:", error);
+    return Response.json({ success: false, error: "Image upload failed" }, { status: 503 });
   }
-
-  return Response.json(
-    { success: false, error: `Unknown intent: ${body.intent}` },
-    { status: 400 }
-  );
 }
