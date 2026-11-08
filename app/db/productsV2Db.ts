@@ -46,6 +46,7 @@ function mapRow(row: ProductRow): Product {
     storageInstructions: details.storageInstructions || "",
     inStock: active && available,
     stockQuantity: tracked ? stockQuantity : Number(details.stockQuantity ?? 999),
+    trackInventory: tracked,
     featured: Number(row.is_featured) === 1,
   } as Product;
 }
@@ -125,7 +126,7 @@ export async function createProductInDb(
   const priceFils = toFils(Number(input.price));
   const compareAt = input.originalPrice == null ? null : toFils(Number(input.originalPrice));
   const slug = slugify(String(input.name));
-  const tracked = Number.isFinite(Number(input.stockQuantity));
+  const tracked = input.trackInventory === true || (input.trackInventory !== false && input.stockQuantity !== undefined && Number.isFinite(Number(input.stockQuantity)));
   const stock = tracked ? Math.max(0, Math.floor(Number(input.stockQuantity))) : 0;
   const active = input.disabled === 1 ? 0 : 1;
   const available = input.inStock === false ? 0 : 1;
@@ -161,7 +162,7 @@ export async function updateProductInDb(
   if (!existing) return { product: null, dbSaved: false, r2Synced: false };
   const updated: Product = { ...existing, ...updates, id: existing.id };
   const categoryId = await getCategoryId(db, String(updated.category || "rutab"));
-  const tracked = updates.stockQuantity !== undefined || Number.isFinite(Number(existing.stockQuantity));
+  const tracked = updates.trackInventory !== undefined ? updates.trackInventory === true : (updates.stockQuantity !== undefined ? true : existing.trackInventory === true);
   const stock = tracked ? Math.max(0, Math.floor(Number(updated.stockQuantity || 0))) : 0;
   const active = updated.disabled === 1 ? 0 : 1;
   const available = updated.inStock === false ? 0 : 1;
