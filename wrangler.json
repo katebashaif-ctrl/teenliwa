@@ -1,30 +1,27 @@
 {
-	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "teenliwa",
-	"main": "./workers/app.ts",
-	"compatibility_date": "2025-10-08",
-	"compatibility_flags": ["nodejs_compat"],
-	"account_id": "0b7dc087410628baa1f652ea0fb8bd57",
-	"observability": {
-		"enabled": true
-	},
-	"upload_source_maps": true,
-	"vars": {
-		"VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare R2",
-		"R2_BUCKET": "bt-liwa"
-	},
-	"r2_buckets": [
-		{
-			"binding": "BUCKET",
-			"bucket_name": "bt-liwa"
-		}
-	],
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "teenliwa-db",
-			"database_id": "93122110-3ccd-4de5-b607-48ee369e3e3a",
-			"migrations_dir": "./migrations"
-		}
-	]
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "teenliwa",
+  "main": "./workers/app.ts",
+  "compatibility_date": "2025-10-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "0b7dc087410628baa1f652ea0fb8bd57",
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
+  "vars": {
+    "R2_BUCKET": "bt-liwa",
+    "FREE_DELIVERY_THRESHOLD": "250",
+    "STANDARD_DELIVERY_FEE": "30",
+    "ZIINA_TEST_MODE": "true"
+  },
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "bt-liwa" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "teenliwa-v2",
+      "database_name": "teenliwa-v2",
+      "database_id": "7912cd75-0a35-4bdc-9aa0-6679ca80d20d",
+      "migrations_dir": "./migrations-v2"
+    }
+  ]
 }
