@@ -170,25 +170,67 @@ export async function handleZiinaWebhook({ request, context }: ActionFunctionArg
     return Response.json({ success: false, error: "Invalid webhook signature" }, { status: 401 });
   }
 
+  let eventId = "";
+  let eventType = "unknown";
   try {
     const payload = JSON.parse(rawBody) as any;
-    if (payload.event !== "payment_intent.status.updated") return Response.json({ success: true, received: true });
+    eventType = String(payload.event || "unknown").slice(0, 160);
+    const bodyHash = toHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody)));
+    eventId = String(payload.id || payload.event_id || bodyHash).slice(0, 200);
+
+    const inserted: any = await d1.prepare(`
+      INSERT OR IGNORE INTO payment_webhook_events (
+        provider, provider_event_id, event_type, signature_verified,
+        processing_status, payload_sha256
+      ) VALUES ('ziina', ?, ?, 1, 'processing', ?)
+    `).bind(eventId, eventType, bodyHash).run();
+    const insertedCount = Number(inserted?.meta?.changes ?? inserted?.meta?.rows_written ?? 0);
+    if (insertedCount === 0) return Response.json({ success: true, received: true, duplicate: true });
+
+    const markEvent = async (status: "processed" | "ignored" | "failed", paymentId?: number | null) => {
+      await d1.prepare(`
+        UPDATE payment_webhook_events
+        SET processing_status = ?, payment_id = COALESCE(?, payment_id),
+            processed_at = CURRENT_TIMESTAMP
+        WHERE provider = 'ziina' AND provider_event_id = ?
+      `).bind(status, paymentId ?? null, eventId).run();
+    };
+
+    if (payload.event !== "payment_intent.status.updated") {
+      await markEvent("ignored");
+      return Response.json({ success: true, received: true });
+    }
+
     const intent = payload.data?.object || payload.data;
-    if (!intent?.id) return Response.json({ success: false, error: "Invalid payment event" }, { status: 400 });
+    if (!intent?.id) {
+      await markEvent("failed");
+      return Response.json({ success: false, error: "Invalid payment event" }, { status: 400 });
+    }
 
     const orderResult = await getOrdersFromDb(d1);
-    if (orderResult.storageType !== "d1_database") return Response.json({ success:false, error:"Order database is temporarily unavailable" }, { status:503 });
+    if (orderResult.storageType !== "d1_database") {
+      await markEvent("failed");
+      return Response.json({ success: false, error: "Order database is temporarily unavailable" }, { status: 503 });
+    }
     const order = orderResult.orders.find((candidate) => candidate.ziinaPaymentIntentId === intent.id);
-    if (!order) return Response.json({ success: false, error: "No matching order" }, { status: 404 });
+    if (!order) {
+      await markEvent("ignored");
+      return Response.json({ success: true, received: true, ignored: true });
+    }
 
     const expectedAmount = Math.round(Number(order.total) * 100);
     if (Number(intent.amount) !== expectedAmount || String(intent.currency_code).toUpperCase() !== "AED") {
+      await markEvent("failed");
       return Response.json({ success: false, error: "Webhook payment amount or currency mismatch" }, { status: 409 });
     }
+
     const state = String(intent.status || "").toLowerCase();
     const isPaid = state === "completed";
     const alreadyPaid = order.paymentStatus === "paid";
-    const paymentStatus = alreadyPaid || isPaid ? "paid" : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
+    const paymentStatus = alreadyPaid || isPaid
+      ? "paid"
+      : (state === "failed" || state === "canceled" || state === "cancelled") ? "failed" : "pending";
+
     if (paymentStatus !== "pending" && !alreadyPaid) {
       const saved = await updateOrderPaymentInDb(order.id, paymentStatus, {
         ziinaPaymentIntentId: intent.id,
@@ -196,11 +238,27 @@ export async function handleZiinaWebhook({ request, context }: ActionFunctionArg
         cardLastFour: intent.card_details?.card_last_four,
         orderStatus: isPaid ? "processing" : "pending",
       }, d1);
-      if (!saved) return Response.json({ success:false, error:"Payment state could not be persisted" }, { status:503 });
+      if (!saved) {
+        await markEvent("failed");
+        return Response.json({ success: false, error: "Payment state could not be persisted" }, { status: 503 });
+      }
     }
+
+    const paymentRow = await d1.prepare("SELECT id FROM payments WHERE provider = 'ziina' AND provider_payment_id = ? LIMIT 1")
+      .bind(String(intent.id)).first<{ id: number }>();
+    await markEvent("processed", paymentRow?.id ?? null);
     return Response.json({ success: true, received: true });
   } catch (error) {
+    if (eventId) {
+      try {
+        await d1.prepare(`
+          UPDATE payment_webhook_events
+          SET processing_status = 'failed', processed_at = CURRENT_TIMESTAMP
+          WHERE provider = 'ziina' AND provider_event_id = ?
+        `).bind(eventId).run();
+      } catch {}
+    }
     console.error("Ziina webhook processing error:", error);
-    return Response.json({ success: false, error: "Failed to process webhook" }, { status: 400 });
+    return Response.json({ success: false, error: "Failed to process webhook" }, { status: 503 });
   }
 }
