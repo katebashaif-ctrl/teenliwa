@@ -45,7 +45,7 @@ function mapRow(row: ProductRow): Product {
     tastingNotes: Array.isArray(details.tastingNotes) ? details.tastingNotes : [],
     storageInstructions: details.storageInstructions || "",
     inStock: active && available,
-    stockQuantity: tracked ? stockQuantity : Number(details.stockQuantity ?? 999),
+    stockQuantity: tracked ? stockQuantity : undefined,
     trackInventory: tracked,
     featured: Number(row.is_featured) === 1,
   } as Product;
