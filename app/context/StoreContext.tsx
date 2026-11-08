@@ -72,7 +72,7 @@ interface StoreContextType {
 
 	// Settings
 	settings: StoreSettings;
-	updateSettings: (newSettings: Partial<StoreSettings>) => void;
+	updateSettings: (newSettings: Partial<StoreSettings>) => Promise<boolean>;
 	resetToSampleData: () => void;
 
 	// Cloudflare R2 Sync
@@ -985,24 +985,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		}).catch((error) => showToast("تعذر حفظ إعدادات Meta", error instanceof Error ? error.message : "حاول مرة أخرى", "warning"));
 	};
 	// Settings & Reset
-	const updateSettings = (newSettings: Partial<StoreSettings>) => {
+	const updateSettings = async (newSettings: Partial<StoreSettings>): Promise<boolean> => {
 		const safeNewSettings = { ...newSettings } as Partial<StoreSettings>;
 		delete (safeNewSettings as any).ziinaApiKey;
 		delete (safeNewSettings as any).ziinaWebhookSecret;
-		void fetch("/api/settings", {
-			method: "PUT",
-			credentials: "same-origin",
-			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
-			body: JSON.stringify({ settings: safeNewSettings }),
-		}).then(async (response) => {
+		try {
+			const response = await fetch("/api/settings", {
+				method: "PUT",
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
+				body: JSON.stringify({ settings: safeNewSettings }),
+			});
 			const data = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Store settings could not be saved");
-			setSettings((previous) => ({ ...previous, ...safeNewSettings, ziinaApiKey: "" }));
+			setSettings((previous) => ({ ...previous, ...safeNewSettings, ziinaApiKey: "", ziinaWebhookSecret: "" }));
 			showToast(t("toasts.settingsSaved"), t("toasts.settingsSavedMsg"));
-		}).catch((error) => {
+			return true;
+		} catch (error) {
 			showToast("تعذر حفظ الإعدادات", error instanceof Error ? error.message : "حاول مرة أخرى", "warning");
-		});
-	};	const resetToSampleData = () => {
+			return false;
+		}
+	};const resetToSampleData = () => {
 		showToast("Sample reset disabled", "Production catalogue and orders are stored in D1 and cannot be overwritten with demo data.", "warning");
 	};
 	return (
