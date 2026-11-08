@@ -72,7 +72,7 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     }
     try {
       const catalog = await getProductsFromDb(db, false);
-      const byId = new Map(catalog.products.map((product) => [String(product.id), product]));
+      const byId = new Map<string, import("../../types/store").Product>(catalog.products.map((product) => [String(product.id), product] as const));
       const normalizedItems = data.items.map((item: any) => {
         const productId = String(item.productId || item.id || item.product?.id || "");
         const product = byId.get(productId);
