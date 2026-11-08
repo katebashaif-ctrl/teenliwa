@@ -703,6 +703,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				setLastOrder(savedOrder);
 			}
 			showToast(t("toasts.orderSaved"), `${t("orderSuccess.orderNumber")}: ${savedOrder.orderNumber}`);
+			trackMetaEvent("Purchase", {
+				content_ids: savedOrder.items.map((item) => item.productId),
+				content_type: "product",
+				value: savedOrder.total,
+				currency: "AED",
+				num_items: savedOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+			});
 			return savedOrder;
 		} catch (error) {
 			setOrders((prev) => prev.filter((order) => order.id !== tempId));
