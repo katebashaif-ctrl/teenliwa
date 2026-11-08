@@ -190,9 +190,7 @@ export async function updateProductInDb(
     tracked ? 1 : 0, stock, Math.max(1, Math.floor(Number(updated.minQty || 1))),
     Math.max(1, Math.floor(Number(updated.maxQty || 50))), detailsFor(updated), Number(id)
   ).run();
-  const previousStock = Number(existing.stockQuantity || 0);
-  const stockDelta = stock - previousStock;
-  if (tracked && stockDelta !== 0) {
+  if (stockDelta !== 0) {
     await db.prepare(`
       INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, note)
       VALUES (?, ?, ?, 'adjustment', 'Stock adjusted from CMS')
