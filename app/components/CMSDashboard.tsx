@@ -1078,7 +1078,7 @@ export const CMSDashboard: React.FC = () => {
 							</div>
 
 							<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-								{(r2Status.remoteImages || [])).map((imgUrl, idx) => (
+								{(r2Status.remoteImages || []).map((imgUrl, idx) => (
 									<div
 										key={idx}
 										className="group relative rounded-xl overflow-hidden border border-[#E8DCCB] bg-[#FAF7F2] aspect-square flex flex-col"
