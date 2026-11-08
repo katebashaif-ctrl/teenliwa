@@ -235,6 +235,19 @@ CREATE TABLE IF NOT EXISTS store_settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS meta_campaigns (
+  campaign_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PAUSED' CHECK (status IN ('ACTIVE','PAUSED','ARCHIVED','IN_REVIEW')),
+  daily_budget_fils INTEGER NOT NULL DEFAULT 0 CHECK (daily_budget_fils >= 0),
+  campaign_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_meta_campaigns_status_updated
+ON meta_campaigns(status, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS marketing_leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   customer_name TEXT NOT NULL,
