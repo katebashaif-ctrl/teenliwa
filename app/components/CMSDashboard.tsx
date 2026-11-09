@@ -144,7 +144,7 @@ export const CMSDashboard: React.FC = () => {
 	const totalRevenue = orders.reduce((sum, order) =>
 		sum + (order.paymentStatus === "paid" || (order.paymentMethod === "cod" && order.status === "delivered") ? order.total : 0), 0);
 	const pendingOrdersCount = orders.filter((o) => o.status === "pending" || o.status === "processing").length;
-	const lowStockProducts = products.filter((p) => p.stockQuantity < 15);
+	const lowStockProducts = products.filter((p) => p.trackInventory === true && (p.stockQuantity ?? 0) < 15);
 
 	// Curated & Real Teen Liwa Product Images list for picker
 	const imageOptions = [
@@ -270,11 +270,6 @@ export const CMSDashboard: React.FC = () => {
 		reader.readAsDataURL(file);
 	};
 
-	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
-		setCopiedKey(text);
-		setTimeout(() => setCopiedKey(null), 2000);
-	};
 
 	const handleCreateProduct = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -318,7 +313,7 @@ export const CMSDashboard: React.FC = () => {
 		const matchesSearch =
 			!productSearch ||
 			p.name.includes(productSearch) ||
-			p.origin.includes(productSearch);
+			(p.origin || "").includes(productSearch);
 		return matchesCat && matchesSearch;
 	});
 
@@ -751,17 +746,17 @@ export const CMSDashboard: React.FC = () => {
 													<div className="flex items-center gap-1.5">
 														<span
 															className={`font-bold tabular-nums ${
-																p.stockQuantity < 15 ? "text-rose-600" : "text-stone-800"
+																p.trackInventory && (p.stockQuantity ?? 0) < 15 ? "text-rose-600" : "text-stone-800"
 															}`}
 														>
-															{p.stockQuantity}
+															{p.trackInventory ? (p.stockQuantity ?? 0) : "غير متتبع"}
 														</span>
 														<div className="flex items-center gap-0.5 mr-2">
 															<button
 																onClick={() =>
 																	updateProduct(p.id, {
-																		stockQuantity: Math.max(0, p.stockQuantity - 1),
-																		inStock: p.stockQuantity - 1 > 0,
+																		stockQuantity: Math.max(0, (p.stockQuantity ?? 0) - 1),
+																		inStock: (p.stockQuantity ?? 0) - 1 > 0,
 																	})
 																}
 																className="w-5 h-5 rounded bg-stone-100 hover:bg-stone-200 flex items-center justify-center font-bold text-stone-700"
@@ -771,7 +766,8 @@ export const CMSDashboard: React.FC = () => {
 															<button
 																onClick={() =>
 																	updateProduct(p.id, {
-																		stockQuantity: p.stockQuantity + 5,
+																		stockQuantity: (p.stockQuantity ?? 0) + 5,
+													trackInventory: true,
 																		inStock: true,
 															})
 																}
@@ -1777,7 +1773,7 @@ export const CMSDashboard: React.FC = () => {
 												inStock: true,
 												disabled: 0,
 												disabledTxt: editingProduct.disabledTxt === "قريباً" ? "متوفر" : (editingProduct.disabledTxt || "متوفر"),
-												stockQuantity: editingProduct.stockQuantity > 0 ? editingProduct.stockQuantity : 25,
+												stockQuantity: (editingProduct.stockQuantity ?? 0) > 0 ? editingProduct.stockQuantity : 25,
 											})
 										}
 										className={`py-2 px-3 rounded-lg border font-bold text-center transition-all flex items-center justify-center gap-1.5 ${
