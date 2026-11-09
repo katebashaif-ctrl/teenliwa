@@ -14,14 +14,17 @@ function getMetaAccessToken(context?: any): string {
 }
 
 function safeMetaConfig(value: Partial<MetaMarketingApiConfig> | null | undefined): MetaMarketingApiConfig {
+  const apiVersion = String(value?.apiVersion || "v21.0").trim();
+  const cleanId = (candidate: unknown): string =>
+    String(candidate || "").trim().slice(0, 100);
   return {
-    adAccountId: String(value?.adAccountId || ""),
+    adAccountId: cleanId(value?.adAccountId),
     accessToken: "",
-    pixelId: String(value?.pixelId || ""),
-    catalogId: String(value?.catalogId || ""),
-    businessManagerId: String(value?.businessManagerId || ""),
+    pixelId: cleanId(value?.pixelId),
+    catalogId: cleanId(value?.catalogId),
+    businessManagerId: cleanId(value?.businessManagerId),
     isConnected: false,
-    apiVersion: String(value?.apiVersion || "v21.0"),
+    apiVersion: /^v\\d+\\.\\d+$/.test(apiVersion) ? apiVersion : "v21.0",
   };
 }
 
