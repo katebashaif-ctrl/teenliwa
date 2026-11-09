@@ -32,8 +32,8 @@ export const Header: React.FC = () => {
 	};
 
 	return (
-		<header className="sticky top-0 z-40 bg-[#FCFBF8]/95 backdrop-blur-md border-b border-[#E8DCCB] transition-all">
-			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-3 sm:gap-6">
+		<header className="store-site-header sticky top-0 z-40 bg-[#FCFBF8]/95 backdrop-blur-md border-b border-[#E8DCCB] transition-all">
+			<div className="store-header-inner max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-3 sm:gap-6">
 				{/* Zone 1: Logo & Brand Name */}
 				<button
 					onClick={() => {
@@ -48,7 +48,7 @@ export const Header: React.FC = () => {
 				</button>
 
 				{/* Zone 2: Concise navigation links */}
-				<nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-stone-700">
+				<nav className="store-site-navigation hidden lg:flex items-center gap-6 text-sm font-medium text-stone-700">
 					<button
 						onClick={() => handleCategoryClick("all")}
 						className="hover:text-[#DE2A2D] transition-colors whitespace-nowrap shrink-0 hover:underline underline-offset-8"
@@ -119,7 +119,7 @@ export const Header: React.FC = () => {
 				</div>
 			</div>
 
-			<div className="lg:hidden border-t border-[#E8DCCB] bg-[#FCFBF8]/95 mobile-scroll-x">
+			<div className="store-mobile-navigation lg:hidden border-t border-[#E8DCCB] bg-[#FCFBF8]/95 mobile-scroll-x">
 				<nav className="max-w-7xl mx-auto flex min-w-max items-center gap-1 px-3 py-2 text-xs font-semibold text-stone-700" aria-label="التصنيفات">
 					{([
 						["all", t("nav.allProducts")],
