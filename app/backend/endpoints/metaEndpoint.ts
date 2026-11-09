@@ -111,20 +111,61 @@ export async function handleMetaCampaignsAction({ request, context }: ActionFunc
 
     if (body.intent === "create_campaign" && body.campaign) {
       const campaignInput = body.campaign;
-      if (!campaignInput.name?.trim() || !Number.isFinite(Number(campaignInput.dailyBudget)) || Number(campaignInput.dailyBudget) < 0) {
-        return Response.json({ success: false, error: "Campaign name and a valid non-negative daily budget are required" }, { status: 400 });
+      const objectives = ["OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC", "OUTCOME_AWARENESS"];
+      const categories = ["all", "rutab", "fig", "faqa", "boxes", "dates", "nuts", "truffle", "fruits"];
+      const callsToAction = ["SHOP_NOW", "ORDER_NOW", "GET_QUOTE", "WHATSAPP_MESSAGE"];
+      const name = String(campaignInput.name || "").trim();
+      const dailyBudget = Number(campaignInput.dailyBudget);
+      if (!name || name.length > 160 ||
+          !Number.isFinite(dailyBudget) || dailyBudget < 0 ||
+          !objectives.includes(String(campaignInput.objective)) ||
+          !categories.includes(String(campaignInput.productCategory)) ||
+          !callsToAction.includes(String(campaignInput.callToAction))) {
+        return Response.json({
+          success: false,
+          error: "Campaign name, objective, category, call-to-action and non-negative AED budget must be valid",
+        }, { status: 400 });
       }
+
+      const headline = String(campaignInput.headline || "").trim();
+      const primaryText = String(campaignInput.primaryText || "").trim();
+      if (!headline || headline.length > 255 || !primaryText || primaryText.length > 2000) {
+        return Response.json({ success: false, error: "Campaign headline and primary text are required and must fit their limits" }, { status: 400 });
+      }
+
+      const normalizeList = (value: unknown, maxItems: number, maxLength: number): string[] => {
+        if (!Array.isArray(value)) return [];
+        return value
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim().slice(0, maxLength))
+          .filter(Boolean)
+          .slice(0, maxItems);
+      };
       const campaign: MetaCampaign = {
-        ...campaignInput,
+        name,
+        objective: campaignInput.objective,
         status: "PAUSED",
+        dailyBudget,
+        spentAED: 0,
+        impressions: 0,
+        clicks: 0,
+        leadsCount: 0,
+        conversions: 0,
+        targetEmirates: normalizeList(campaignInput.targetEmirates, 8, 80),
+        targetInterests: normalizeList(campaignInput.targetInterests, 30, 120),
+        productCategory: campaignInput.productCategory,
+        headline,
+        primaryText,
+        callToAction: campaignInput.callToAction,
+        imageUrl: String(campaignInput.imageUrl || "").trim().slice(0, 1000),
+        leadFormName: campaignInput.leadFormName ? String(campaignInput.leadFormName).trim().slice(0, 160) : undefined,
         id: "camp-meta-" + crypto.randomUUID(),
-        spentAED: 0, impressions: 0, clicks: 0, leadsCount: 0, conversions: 0,
         createdAt: new Date().toISOString(),
       };
       await db.prepare(`
         INSERT INTO meta_campaigns (campaign_id, name, status, daily_budget_fils, campaign_json)
         VALUES (?, ?, ?, ?, ?)
-      `).bind(campaign.id, campaign.name, campaign.status, toFils(Number(campaign.dailyBudget)), JSON.stringify(campaign)).run();
+      `).bind(campaign.id, campaign.name, campaign.status, toFils(dailyBudget), JSON.stringify(campaign)).run();
       return Response.json({ success: true, message: "Campaign created successfully", campaign });
     }
 
