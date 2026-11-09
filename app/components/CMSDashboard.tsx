@@ -15,7 +15,6 @@ import {
 	Check,
 	X,
 	ArrowUpRight,
-	RotateCcw,
 	Search,
 	Sparkles,
 	Cloud,
