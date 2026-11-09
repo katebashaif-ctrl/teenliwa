@@ -900,6 +900,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	};
 
 	const updateCampaignBudget = (id: string, budget: number) => {
+		if (!Number.isFinite(budget) || budget < 0 || !Number.isSafeInteger(Math.round(budget * 100))) {
+			showToast("ميزانية غير صالحة", "أدخل مبلغاً صحيحاً غير سالب بالدرهم الإماراتي.", "warning");
+			return;
+		}
 		setMetaCampaigns((previous) => previous.map((campaign) => campaign.id === id ? { ...campaign, dailyBudget: budget } : campaign));
 		void fetch("/api/meta/campaigns", {
 			method: "POST", credentials: "same-origin",
