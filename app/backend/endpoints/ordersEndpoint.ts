@@ -73,7 +73,15 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
     try {
       const catalog = await getProductsFromDb(db, false);
       const byId = new Map<string, import("../../types/store").Product>(catalog.products.map((product) => [String(product.id), product] as const));
-      const normalizedItems = data.items.map((item: any) => {
+      const normalizedItems: Array<{
+        productId: string;
+        name: string;
+        quantity: number;
+        price: number;
+        unit: string;
+        packagingOption?: string;
+        trackInventory: boolean;
+      }> = (data.items as any[]).map((item: any) => {
         const productId = String(item.productId || item.id || item.product?.id || "");
         const product = byId.get(productId);
         const quantity = Number(item.quantity);
@@ -92,7 +100,8 @@ export async function handleOrdersAction({ request, context }: ActionFunctionArg
           trackInventory: product.trackInventory === true,
         };
       });
-      const subtotal = normalizedItems.reduce((sum, item) => sum + toFils(item.price) * item.quantity, 0) / 100;
+      const subtotalFils = normalizedItems.reduce((sum: number, item) => sum + toFils(item.price) * item.quantity, 0);
+      const subtotal = subtotalFils / 100;
       if (!Number.isFinite(subtotal) || subtotal > 100000) throw new Error("Order subtotal is outside the supported range");
 
       const env = getWorkerEnv(context);
