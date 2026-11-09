@@ -18,8 +18,8 @@ export const CMSView: React.FC = () => {
 	if (!isAuthEffective) {
 		return (
 			<StoreLayout>
-				<div className="flex-1 flex items-center justify-center p-6 py-20 bg-[#FAF7F2]">
-					<div className="text-center space-y-4 max-w-md w-full bg-white p-8 rounded-2xl border border-[#D6BE9F] shadow-xl">
+				<div className="cms-access-screen flex-1 flex items-center justify-center p-6 py-20 bg-[#FAF7F2]">
+					<div className="cms-access-card text-center space-y-4 max-w-md w-full bg-white p-8 rounded-2xl border border-[#D6BE9F] shadow-xl">
 						<div className="w-16 h-16 rounded-2xl bg-[#F5EFE6] text-amber-900 border border-[#D6BE9F] flex items-center justify-center mx-auto">
 							<Lock className="w-8 h-8 text-amber-800" />
 						</div>
