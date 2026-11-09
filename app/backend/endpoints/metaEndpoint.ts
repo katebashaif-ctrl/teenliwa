@@ -24,7 +24,7 @@ function safeMetaConfig(value: Partial<MetaMarketingApiConfig> | null | undefine
     catalogId: cleanId(value?.catalogId),
     businessManagerId: cleanId(value?.businessManagerId),
     isConnected: false,
-    apiVersion: /^v\\d+\\.\\d+$/.test(apiVersion) ? apiVersion : "v21.0",
+    apiVersion: /^v[0-9]+[.][0-9]+$/.test(apiVersion) ? apiVersion : "v21.0",
   };
 }
 
