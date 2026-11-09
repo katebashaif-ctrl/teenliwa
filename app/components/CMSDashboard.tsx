@@ -86,6 +86,7 @@ export const CMSDashboard: React.FC = () => {
 	// Modal states
 	const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 	const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+	const [newProductImageSelection, setNewProductImageSelection] = useState("");
 	const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
 	const [productFilterCat, setProductFilterCat] = useState<string>("all");
 	const [productSearch, setProductSearch] = useState("");
@@ -173,10 +174,6 @@ export const CMSDashboard: React.FC = () => {
 						remoteImages: [data.url, ...(prev.remoteImages || [])],
 						remoteObjectsCount: prev.remoteObjectsCount + 1,
 					}));
-					setUploadedImages((prev) => [
-						{ label: `R2 سحابية · ${file.name.slice(0, 15)}`, url: data.url },
-						...prev,
-					]);
 				} else {
 					showToast("تنبيه R2", data.error || "تعذر الرفع إلى Cloudflare R2 مباشرة.", "warning");
 				}
@@ -989,7 +986,7 @@ export const CMSDashboard: React.FC = () => {
 											</span>
 											<button
 												onClick={() => {
-													setNewProdImage(imgUrl);
+													setNewProductImageSelection(imgUrl);
 													setIsAddModalOpen(true);
 													showToast("تم اختيار صورة R2", "تم تعيين الصورة للمنتج الجديد.");
 												}}
@@ -1355,9 +1352,11 @@ export const CMSDashboard: React.FC = () => {
 			{(isAddModalOpen || editingProduct) && (
 				<ProductFormModal
 					product={editingProduct}
+					initialImage={newProductImageSelection}
 					onClose={() => {
 						setIsAddModalOpen(false);
 						setEditingProduct(null);
+						setNewProductImageSelection("");
 					}}
 					onSave={async (data) => editingProduct
 						? await updateProduct(editingProduct.id, data)
