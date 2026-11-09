@@ -43,7 +43,7 @@ export const CategoryFilter: React.FC = () => {
 	];
 
 	return (
-		<div className="space-y-4 mb-8" id="catalog-section">
+		<div className="category-filter-panel space-y-4 mb-8" id="catalog-section">
 			{/* Top bar with heading and counts */}
 			<div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
 				<div>
@@ -60,7 +60,7 @@ export const CategoryFilter: React.FC = () => {
 			</div>
 
 			{/* Segmented Category Buttons */}
-			<div className="flex items-center gap-1.5 p-1 bg-[#F5EFE6] rounded-xl overflow-x-auto scrollbar-none border border-[#E8DCCB]">
+			<div className="category-filter-tabs flex items-center gap-1.5 p-1 bg-[#F5EFE6] rounded-xl overflow-x-auto scrollbar-none border border-[#E8DCCB]">
 				{categories.map((cat) => {
 					const isActive = activeCategory === cat.id;
 					return (
