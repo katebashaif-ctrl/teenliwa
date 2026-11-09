@@ -19,10 +19,12 @@ function mapRow(row: ProductRow): Product {
   const tracked = Number(row.track_inventory) === 1;
   const stockQuantity = Number(row.stock_quantity || 0);
   const active = Number(row.is_active) === 1;
-  const available = Number(row.is_available) === 1 && (!tracked || stockQuantity > 0);
+  const configuredAvailable = Number(row.is_available) === 1;
+  const available = configuredAvailable && (!tracked || stockQuantity > 0);
   return {
     ...details,
     id: String(row.id),
+    sku: row.sku || undefined,
     name: String(row.name || ""),
     nameEn: row.name_en || details.nameEn || row.name,
     category: (row.category_slug || details.category || "rutab") as Product["category"],
@@ -39,7 +41,7 @@ function mapRow(row: ProductRow): Product {
     badge: row.badge || details.badge,
     minQty: Number(row.minimum_order_quantity || 1),
     maxQty: Number(row.maximum_order_quantity || 50),
-    disabled: active && available ? 0 : 1,
+    disabled: active && configuredAvailable ? 0 : 1,
     disabledTxt: details.disabledTxt || (available ? "متوفر" : "غير متوفر"),
     created_at: row.created_at,
     tastingNotes: Array.isArray(details.tastingNotes) ? details.tastingNotes : [],
@@ -47,6 +49,9 @@ function mapRow(row: ProductRow): Product {
     inStock: active && available,
     stockQuantity: tracked ? stockQuantity : undefined,
     trackInventory: tracked,
+    isActive: active,
+    isAvailable: configuredAvailable,
+    sortOrder: Number(row.sort_order || 0),
     featured: Number(row.is_featured) === 1,
   } as Product;
 }
@@ -105,57 +110,103 @@ export async function getProductsFromDb(
 function detailsFor(product: Product): string {
   const details: Record<string, unknown> = {
     nameEn: product.nameEn,
-    origin: product.origin,
     harvestDate: product.harvestDate,
     season: product.season,
     tastingNotes: product.tastingNotes,
     storageInstructions: product.storageInstructions,
     desc: product.desc,
     disabledTxt: product.disabledTxt,
-    stockQuantity: product.stockQuantity,
   };
   return JSON.stringify(details);
+}
+
+function positiveInteger(value: unknown, fallback: number, label: string): number {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`${label} must be a positive whole number`);
+  }
+  return parsed;
+}
+
+function nonNegativeInteger(value: unknown, fallback: number, label: string): number {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative whole number`);
+  }
+  return parsed;
+}
+
+async function assertSkuAvailable(db: D1DatabaseLike, sku: string | null, exceptId?: string): Promise<void> {
+  if (!sku) return;
+  const row = exceptId
+    ? await db.prepare("SELECT id FROM products WHERE lower(sku) = lower(?) AND id <> ? LIMIT 1")
+        .bind(sku, Number(exceptId)).first<{ id: number }>()
+    : await db.prepare("SELECT id FROM products WHERE lower(sku) = lower(?) LIMIT 1")
+        .bind(sku).first<{ id: number }>();
+  if (row) throw new Error("رمز SKU مستخدم مسبقاً. أدخل رمزاً فريداً لهذا المنتج.");
 }
 
 export async function createProductInDb(
   input: Product,
   db: D1DatabaseLike,
 ): Promise<{ product: Product; dbSaved: boolean; r2Synced: boolean }> {
-  if (!input?.name?.trim()) throw new Error("Product name is required");
-  const categoryId = await getCategoryId(db, String(input.category || "rutab"));
+  const name = String(input?.name || "").trim();
+  if (!name) throw new Error("اسم المنتج مطلوب.");
+  if (name.length > 200) throw new Error("اسم المنتج يجب ألا يتجاوز 200 حرف.");
+
   const priceFils = toFils(Number(input.price));
-  const compareAt = input.originalPrice == null ? null : toFils(Number(input.originalPrice));
-  const slug = slugify(String(input.name));
-  const tracked = input.trackInventory === true || (input.trackInventory !== false && input.stockQuantity !== undefined && Number.isFinite(Number(input.stockQuantity)));
-  const stock = tracked ? Math.max(0, Math.floor(Number(input.stockQuantity))) : 0;
-  const active = input.disabled === 1 ? 0 : 1;
-  const available = input.inStock === false ? 0 : 1;
+  const compareAt = input.originalPrice == null || input.originalPrice === ("" as any)
+    ? null
+    : toFils(Number(input.originalPrice));
+  if (compareAt != null && compareAt < priceFils) {
+    throw new Error("السعر قبل الخصم يجب أن يكون أكبر من أو مساوياً للسعر الحالي.");
+  }
+
+  const sku = String(input.sku || "").trim() || null;
+  await assertSkuAvailable(db, sku);
+  const minimumOrderQuantity = positiveInteger(input.minQty, 1, "Minimum order quantity");
+  const maximumOrderQuantity = positiveInteger(input.maxQty, 50, "Maximum order quantity");
+  if (maximumOrderQuantity < minimumOrderQuantity) {
+    throw new Error("الحد الأقصى للطلب يجب أن يكون أكبر من أو مساوياً للحد الأدنى.");
+  }
+
+  const tracked = input.trackInventory === true ||
+    (input.trackInventory === undefined && input.stockQuantity !== undefined);
+  const stock = tracked ? nonNegativeInteger(input.stockQuantity, 0, "Stock quantity") : 0;
+  const active = input.isActive !== undefined
+    ? (input.isActive ? 1 : 0)
+    : input.disabled === 1 ? 0 : 1;
+  const available = input.isAvailable !== undefined
+    ? (input.isAvailable ? 1 : 0)
+    : input.inStock === false ? 0 : 1;
+  const categoryId = await getCategoryId(db, String(input.category || "rutab"));
+  const slug = slugify(name);
+
   const inserted = await db.prepare(`
     INSERT INTO products (
-      category_id, name, name_en, slug, description, price_fils, compare_at_price_fils,
+      category_id, sku, name, name_en, slug, description, price_fils, compare_at_price_fils,
       image_url, unit, origin, harvest_date, season, tag, badge, is_active,
       is_available, is_featured, track_inventory, stock_quantity,
       minimum_order_quantity, maximum_order_quantity, details_json, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     RETURNING id
   `).bind(
-    categoryId, input.name.trim(), input.nameEn || null, slug, input.description || "",
-    priceFils, compareAt, input.image || null, input.unit || "item", input.origin || null,
-    input.harvestDate || null, input.season || null, input.tag || null, input.badge || null,
-    active, available, input.featured ? 1 : 0, tracked ? 1 : 0, stock,
-    Math.max(1, Math.floor(Number(input.minQty || 1))),
-    Math.max(1, Math.floor(Number(input.maxQty || 50))),
-    detailsFor(input), 0
+    categoryId, sku, name, String(input.nameEn || "").trim() || null, slug,
+    String(input.description || "").trim(), priceFils, compareAt,
+    String(input.image || "").trim() || null, String(input.unit || "").trim() || "item",
+    String(input.origin || "").trim() || null, String(input.harvestDate || "").trim() || null,
+    String(input.season || "").trim() || null, String(input.tag || "").trim() || null,
+    String(input.badge || "").trim() || null, active, available,
+    input.featured ? 1 : 0, tracked ? 1 : 0, stock,
+    minimumOrderQuantity, maximumOrderQuantity, detailsFor(input),
+    nonNegativeInteger(input.sortOrder, 0, "Sort order")
   ).first<{ id: number }>();
+
   if (!inserted?.id) throw new Error("Product insert did not return an id");
-  if (tracked && stock > 0) {
-    await db.prepare(`
-      INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, note)
-      VALUES (?, ?, ?, 'initial_stock', 'Initial stock set from CMS')
-    `).bind(Number(inserted.id), input.name.trim().slice(0, 200), stock).run();
-  }
+
   const product = await getProductById(db, String(inserted.id));
   if (!product) throw new Error("Product was inserted but could not be reloaded");
+
   if (tracked && stock > 0) {
     await db.prepare(`
       INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, note)
@@ -172,8 +223,28 @@ export async function updateProductInDb(
 ): Promise<{ product: Product | null; dbSaved: boolean; r2Synced: boolean }> {
   const existing = await getProductById(db, id);
   if (!existing) return { product: null, dbSaved: false, r2Synced: false };
+
   const updated: Product = { ...existing, ...updates, id: existing.id };
-  const categoryId = await getCategoryId(db, String(updated.category || "rutab"));
+  const name = String(updated.name || "").trim();
+  if (!name) throw new Error("اسم المنتج مطلوب.");
+  if (name.length > 200) throw new Error("اسم المنتج يجب ألا يتجاوز 200 حرف.");
+
+  const priceFils = toFils(Number(updated.price));
+  const compareAt = updated.originalPrice == null
+    ? null
+    : toFils(Number(updated.originalPrice));
+  if (compareAt != null && compareAt < priceFils) {
+    throw new Error("السعر قبل الخصم يجب أن يكون أكبر من أو مساوياً للسعر الحالي.");
+  }
+
+  const sku = String(updated.sku || "").trim() || null;
+  await assertSkuAvailable(db, sku, id);
+  const minimumOrderQuantity = positiveInteger(updated.minQty, 1, "Minimum order quantity");
+  const maximumOrderQuantity = positiveInteger(updated.maxQty, 50, "Maximum order quantity");
+  if (maximumOrderQuantity < minimumOrderQuantity) {
+    throw new Error("الحد الأقصى للطلب يجب أن يكون أكبر من أو مساوياً للحد الأدنى.");
+  }
+
   const wasTracked = existing.trackInventory === true;
   const tracked = updates.trackInventory !== undefined
     ? updates.trackInventory === true
@@ -181,34 +252,50 @@ export async function updateProductInDb(
   const stockInput = updates.stockQuantity !== undefined
     ? updates.stockQuantity
     : wasTracked ? existing.stockQuantity : 0;
-  const stock = tracked ? Math.max(0, Math.floor(Number(stockInput ?? 0))) : 0;
-  const previousTrackedStock = wasTracked ? Math.max(0, Math.floor(Number(existing.stockQuantity || 0))) : 0;
+  const stock = tracked ? nonNegativeInteger(stockInput, 0, "Stock quantity") : 0;
+  const previousTrackedStock = wasTracked
+    ? nonNegativeInteger(existing.stockQuantity, 0, "Previous stock quantity")
+    : 0;
   const stockDelta = (tracked ? stock : 0) - previousTrackedStock;
-  const active = updated.disabled === 1 ? 0 : 1;
-  const available = updated.inStock === false ? 0 : 1;
+
+  const active = updates.isActive !== undefined
+    ? (updates.isActive ? 1 : 0)
+    : updates.disabled !== undefined
+      ? (updates.disabled === 1 ? 0 : 1)
+      : (existing.isActive !== false ? 1 : 0);
+  const available = updates.isAvailable !== undefined
+    ? (updates.isAvailable ? 1 : 0)
+    : updates.inStock !== undefined
+      ? (updates.inStock ? 1 : 0)
+      : (existing.isAvailable !== false ? 1 : 0);
+  const categoryId = await getCategoryId(db, String(updated.category || "rutab"));
+
   await db.prepare(`
     UPDATE products SET
-      category_id = ?, name = ?, name_en = ?, description = ?, price_fils = ?,
+      category_id = ?, sku = ?, name = ?, name_en = ?, description = ?, price_fils = ?,
       compare_at_price_fils = ?, image_url = ?, unit = ?, origin = ?, harvest_date = ?,
       season = ?, tag = ?, badge = ?, is_active = ?, is_available = ?, is_featured = ?,
       track_inventory = ?, stock_quantity = ?, minimum_order_quantity = ?,
-      maximum_order_quantity = ?, details_json = ?, updated_at = CURRENT_TIMESTAMP
+      maximum_order_quantity = ?, details_json = ?, sort_order = ?,
+      updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND deleted_at IS NULL
   `).bind(
-    categoryId, updated.name.trim(), updated.nameEn || null, updated.description || "",
-    toFils(Number(updated.price)),
-    updated.originalPrice == null ? null : toFils(Number(updated.originalPrice)),
-    updated.image || null, updated.unit || "item", updated.origin || null,
-    updated.harvestDate || null, updated.season || null, updated.tag || null,
-    updated.badge || null, active, available, updated.featured ? 1 : 0,
-    tracked ? 1 : 0, stock, Math.max(1, Math.floor(Number(updated.minQty || 1))),
-    Math.max(1, Math.floor(Number(updated.maxQty || 50))), detailsFor(updated), Number(id)
+    categoryId, sku, name, String(updated.nameEn || "").trim() || null,
+    String(updated.description || "").trim(), priceFils, compareAt,
+    String(updated.image || "").trim() || null, String(updated.unit || "").trim() || "item",
+    String(updated.origin || "").trim() || null, String(updated.harvestDate || "").trim() || null,
+    String(updated.season || "").trim() || null, String(updated.tag || "").trim() || null,
+    String(updated.badge || "").trim() || null, active, available,
+    updated.featured ? 1 : 0, tracked ? 1 : 0, stock,
+    minimumOrderQuantity, maximumOrderQuantity, detailsFor(updated),
+    nonNegativeInteger(updated.sortOrder, 0, "Sort order"), Number(id)
   ).run();
+
   if (stockDelta !== 0) {
     await db.prepare(`
       INSERT INTO inventory_movements (product_id, product_name, quantity_delta, reason, note)
       VALUES (?, ?, ?, 'adjustment', 'Stock adjusted from CMS')
-    `).bind(Number(id), updated.name.slice(0, 200), stockDelta).run();
+    `).bind(Number(id), name.slice(0, 200), stockDelta).run();
   }
   return { product: await getProductById(db, id), dbSaved: true, r2Synced: false };
 }
