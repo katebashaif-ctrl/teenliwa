@@ -10,6 +10,8 @@ export type ProductCategory =
 
 export interface Product {
 	id: string;
+	/** Optional unique SKU stored in products.sku. */
+	sku?: string;
 	name: string;
 	nameEn?: string;
 	category: ProductCategory;
@@ -33,6 +35,10 @@ export interface Product {
 	inStock: boolean;
 	stockQuantity?: number;
 	trackInventory?: boolean;
+	/** Mirrors products.is_active and products.is_available. */
+	isActive?: boolean;
+	isAvailable?: boolean;
+	sortOrder?: number;
 	badge?: string;
 	featured?: boolean;
 }
