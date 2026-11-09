@@ -1,0 +1,65 @@
+name: Apply D1 v2 migration and deploy Teen Liwa
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "migrations-v2/**"
+      - "wrangler.json"
+      - ".github/workflows/deploy-v2.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teenliwa-v2-production
+  cancel-in-progress: false
+
+jobs:
+  migrate-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check Cloudflare deployment credential
+        shell: bash
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN under GitHub repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check, build, and validate Worker bundle
+        run: npm run check
+
+      - name: Apply v2 migrations to the remote D1 database
+        run: npx wrangler d1 migrations apply teenliwa-v2 --remote
+
+      - name: Verify required v2 tables
+        shell: bash
+        run: |
+          result="$(npx wrangler d1 execute teenliwa-v2 --remote --command "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;")"
+          printf '%s\n' "$result"
+          for table in categories products customers customer_addresses delivery_zones orders order_items payments payment_webhook_events inventory_movements order_status_history admin_users admin_sessions store_settings meta_campaigns marketing_leads cms_audit_logs; do
+            if ! printf '%s\n' "$result" | grep -Fq "$table"; then
+              echo "::error::Required D1 v2 table is missing: $table"
+              exit 1
+            fi
+          done
+
+      - name: Deploy Worker after successful migration
+        run: npx wrangler deploy
