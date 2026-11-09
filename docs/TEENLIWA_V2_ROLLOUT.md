@@ -11,6 +11,17 @@ The new production database is configured in `wrangler.json`:
 
 Cloudflare requires a binding name to be a valid JavaScript identifier. The database name may contain hyphens, so the configured binding is `TEENLIWA_V2` and the database name remains `teenliwa-v2`.
 
+## GitHub Actions credential (required for automatic migration)
+
+Worker secrets configured in Cloudflare are not automatically available to GitHub Actions. The repository workflow `.github/workflows/deploy-v2.yml` requires a separate GitHub repository Actions secret:
+
+1. In Cloudflare, create a scoped API token for the same account as this Worker. Grant **D1: Edit** and **Workers Scripts: Edit** (plus Account Settings: Read only if Wrangler requests account discovery). Scope it to this account and the existing Worker where possible.
+2. In GitHub, open **Settings → Secrets and variables → Actions → New repository secret**.
+3. Name it exactly `CLOUDFLARE_API_TOKEN` and paste the token value. Never commit it to a file or share it in chat.
+4. Open **Actions → Apply D1 v2 migration and deploy Teen Liwa → Run workflow** on `main`.
+
+The workflow runs the project checks, applies the remote D1 migration, verifies all required tables, then deploys the Worker. If the GitHub Actions secret is missing, the workflow stops before it touches D1. Existing Cloudflare Worker secrets such as `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, Ziina, Gemini, and Meta secrets stay configured in Cloudflare; do not copy them into GitHub.
+
 ## Apply the schema before deploying
 
 Run from the repository root:
