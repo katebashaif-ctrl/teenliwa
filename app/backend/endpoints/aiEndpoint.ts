@@ -421,8 +421,11 @@ export async function handleAiAgentAction({ request, context }: ActionFunctionAr
 
         if (functionCalls && functionCalls.length > 0) {
           for (const call of functionCalls) {
-            const res = await executeTool(call.name, call.args);
-            executedActions.push({ tool: call.name, args: call.args, result: res });
+            const toolName = typeof call.name === "string" ? call.name : "";
+            const toolArgs = call.args ?? {};
+            if (!toolName) continue;
+            const res = await executeTool(toolName, toolArgs);
+            executedActions.push({ tool: toolName, args: toolArgs, result: res });
           }
 
           const followUpResponse = await ai.models.generateContent({
