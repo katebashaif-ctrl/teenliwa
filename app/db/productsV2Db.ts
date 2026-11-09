@@ -174,8 +174,16 @@ export async function updateProductInDb(
   if (!existing) return { product: null, dbSaved: false, r2Synced: false };
   const updated: Product = { ...existing, ...updates, id: existing.id };
   const categoryId = await getCategoryId(db, String(updated.category || "rutab"));
-  const tracked = updates.trackInventory !== undefined ? updates.trackInventory === true : (updates.stockQuantity !== undefined ? true : existing.trackInventory === true);
-  const stock = tracked ? Math.max(0, Math.floor(Number(updated.stockQuantity || 0))) : 0;
+  const wasTracked = existing.trackInventory === true;
+  const tracked = updates.trackInventory !== undefined
+    ? updates.trackInventory === true
+    : updates.stockQuantity !== undefined ? true : wasTracked;
+  const stockInput = updates.stockQuantity !== undefined
+    ? updates.stockQuantity
+    : wasTracked ? existing.stockQuantity : 0;
+  const stock = tracked ? Math.max(0, Math.floor(Number(stockInput ?? 0))) : 0;
+  const previousTrackedStock = wasTracked ? Math.max(0, Math.floor(Number(existing.stockQuantity || 0))) : 0;
+  const stockDelta = (tracked ? stock : 0) - previousTrackedStock;
   const active = updated.disabled === 1 ? 0 : 1;
   const available = updated.inStock === false ? 0 : 1;
   await db.prepare(`
