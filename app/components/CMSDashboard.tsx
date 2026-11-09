@@ -271,6 +271,22 @@ export const CMSDashboard: React.FC = () => {
 	};
 
 
+	const copyToClipboard = async (text: string) => {
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch {
+			const temporaryInput = document.createElement("textarea");
+			temporaryInput.value = text;
+			temporaryInput.setAttribute("readonly", "");
+			temporaryInput.style.position = "fixed";
+			temporaryInput.style.opacity = "0";
+			document.body.appendChild(temporaryInput);
+			temporaryInput.select();
+			document.execCommand("copy");
+			temporaryInput.remove();
+		}
+	};
+
 	const handleCreateProduct = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!newProdName.trim()) return;
