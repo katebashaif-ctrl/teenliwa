@@ -7,6 +7,14 @@ on:
     paths:
       - "migrations-v2/**"
       - "wrangler.json"
+      - "app/**"
+      - "workers/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.*"
+      - "react-router.config.*"
+      - "tsconfig*.json"
       - ".github/workflows/deploy-v2.yml"
 
 permissions:
