@@ -869,11 +869,8 @@ export const MetaCampaignsManager: React.FC = () => {
 								</div>
 								<div>
 									<label className="block font-semibold text-stone-800 mb-1">Graph API Version</label>
-									<select value={configForm.apiVersion} onChange={(e) => setConfigForm({ ...configForm, apiVersion: e.target.value })} dir="ltr" className="w-full rounded-lg border border-stone-300 bg-white p-2.5 font-mono">
-										<option value="v21.0">v21.0</option>
-										<option value="v22.0">v22.0</option>
-										<option value="v23.0">v23.0</option>
-									</select>
+									<input type="text" required maxLength={16} pattern="v[0-9]+\\.[0-9]+" title="مثال: v21.0" value={configForm.apiVersion} onChange={(e) => setConfigForm({ ...configForm, apiVersion: e.target.value.trim() })} dir="ltr" className="w-full rounded-lg border border-stone-300 bg-white p-2.5 font-mono" placeholder="v21.0" />
+									<p className="mt-1 text-[10px] text-stone-400">أدخل إصدار Graph API الذي يدعمه حساب Meta لديك.</p>
 								</div>
 							</div>
 						</div>
