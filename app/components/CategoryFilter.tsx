@@ -43,7 +43,7 @@ export const CategoryFilter: React.FC = () => {
 	];
 
 	return (
-		<div className="category-filter-panel space-y-4 mb-8" id="catalog-section">
+		<div className="category-filter-panel space-y-4 mb-8">
 			{/* Top bar with heading and counts */}
 			<div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
 				<div>
@@ -66,6 +66,7 @@ export const CategoryFilter: React.FC = () => {
 					return (
 						<button
 							key={cat.id}
+							aria-pressed={isActive}
 							onClick={() => setActiveCategory(cat.id)}
 							className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 ${
 								isActive
