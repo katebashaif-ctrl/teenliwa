@@ -102,7 +102,7 @@ export const HomeView: React.FC = () => {
 			<Hero />
 			<section
 				id="catalog-section"
-				className="py-12 lg:py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+				className="store-catalog-section py-12 lg:py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
 			>
 				<CategoryFilter />
 				{isCatalogLoading ? (
@@ -119,7 +119,7 @@ export const HomeView: React.FC = () => {
 						</p>
 					</div>
 				) : (
-					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+					<div className="store-product-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
 						{filteredProducts.map((product) => (
 							<ProductCard
 								key={product.id}
