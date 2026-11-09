@@ -6,6 +6,7 @@ type ProductFormData = Omit<Product, "id">;
 
 interface ProductFormModalProps {
   product?: Product | null;
+  initialImage?: string;
   onClose: () => void;
   onSave: (product: ProductFormData) => Promise<boolean>;
 }
@@ -41,7 +42,7 @@ const inputClass =
   "w-full min-w-0 rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-800 focus:ring-2 focus:ring-amber-800/10";
 const labelClass = "mb-1.5 block text-xs font-bold text-stone-700";
 
-function makeInitialProduct(product?: Product | null): ProductFormData {
+function makeInitialProduct(product?: Product | null, initialImage?: string): ProductFormData {
   if (product) {
     return {
       ...product,
@@ -81,7 +82,7 @@ function makeInitialProduct(product?: Product | null): ProductFormData {
     origin: "مزارع ليوا - واحات الظفرة",
     harvestDate: "",
     season: "",
-    image: "",
+    image: initialImage || "",
     description: "",
     desc: "",
     tag: "",
@@ -104,10 +105,11 @@ function makeInitialProduct(product?: Product | null): ProductFormData {
 
 export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   product,
+  initialImage,
   onClose,
   onSave,
 }) => {
-  const [form, setForm] = useState<ProductFormData>(() => makeInitialProduct(product));
+  const [form, setForm] = useState<ProductFormData>(() => makeInitialProduct(product, initialImage));
   const [tastingNotesText, setTastingNotesText] = useState(
     () => (product?.tastingNotes || []).join(", "),
   );
