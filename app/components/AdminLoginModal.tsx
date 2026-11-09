@@ -31,7 +31,7 @@ export const AdminLoginModal: React.FC = () => {
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn text-right">
 			<div
-				className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-[#D6BE9F] p-6 sm:p-8 space-y-6"
+				className="admin-login-card relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-[#D6BE9F] p-6 sm:p-8 space-y-6"
 				onClick={(e) => e.stopPropagation()}
 			>
 				{/* Close Button */}
