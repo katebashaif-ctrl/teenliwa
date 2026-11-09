@@ -885,6 +885,10 @@ export const MetaCampaignsManager: React.FC = () => {
 							</button>
 							<button
 								onClick={() => {
+									if (!/^v[0-9]+[.][0-9]+$/.test(configForm.apiVersion.trim())) {
+										showToast("إصدار Meta غير صالح", "استخدم صيغة مثل v21.0.", "warning");
+										return;
+									}
 									updateMetaConfig(configForm);
 									setIsConfigModalOpen(false);
 								}}
