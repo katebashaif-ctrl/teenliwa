@@ -33,7 +33,7 @@ export const Header: React.FC = () => {
 
 	return (
 		<header className="sticky top-0 z-40 bg-[#FCFBF8]/95 backdrop-blur-md border-b border-[#E8DCCB] transition-all">
-			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-6">
+			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-3 sm:gap-6">
 				{/* Zone 1: Logo & Brand Name */}
 				<button
 					onClick={() => {
@@ -41,7 +41,7 @@ export const Header: React.FC = () => {
 						setActiveCategory("all");
 						window.scrollTo({ top: 0, behavior: "smooth" });
 					}}
-					className="flex items-center gap-3 text-right whitespace-nowrap shrink-0 group focus:outline-none"
+					className="flex min-w-0 items-center gap-2 sm:gap-3 text-right whitespace-nowrap shrink-0 group focus:outline-none"
 					aria-label={t("nav.homeAria")}
 				>
 					<Logo variant="header" />
@@ -117,6 +117,25 @@ export const Header: React.FC = () => {
 						</button>
 					)}
 				</div>
+			</div>
+
+			<div className="lg:hidden border-t border-[#E8DCCB] bg-[#FCFBF8]/95 mobile-scroll-x">
+				<nav className="max-w-7xl mx-auto flex min-w-max items-center gap-1 px-3 py-2 text-xs font-semibold text-stone-700" aria-label="التصنيفات">
+					{([
+						["all", t("nav.allProducts")],
+						["fig", t("nav.freshFigs")],
+						["dates", t("nav.dates")],
+						["faqa", t("nav.desertTruffles")],
+						["nuts", t("nav.freshFruits")],
+					] as const).map(([id, label]) => (
+						<button key={id} onClick={() => handleCategoryClick(id)} className="rounded-full px-3 py-1.5 whitespace-nowrap hover:bg-[#F5EFE6] hover:text-[#DE2A2D] transition-colors">
+							{label}
+						</button>
+					))}
+					<button onClick={handleStoryClick} className="rounded-full px-3 py-1.5 whitespace-nowrap hover:bg-[#F5EFE6] hover:text-[#DE2A2D] transition-colors">
+						{t("nav.ourStory")}
+					</button>
+				</nav>
 			</div>
 		</header>
 	);
