@@ -15,7 +15,7 @@ interface StoreLayoutProps {
 
 export const StoreLayout: React.FC<StoreLayoutProps> = ({ children }) => {
 	return (
-		<div className="flex flex-col min-h-screen text-right">
+		<div className="storefront-shell flex flex-col min-h-screen text-right">
 			<AnnouncementBar />
 			<Header />
 			<main className="flex-1">{children}</main>
