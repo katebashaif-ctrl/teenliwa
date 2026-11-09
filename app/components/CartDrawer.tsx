@@ -98,7 +98,7 @@ export const CartDrawer: React.FC = () => {
 			name: item.product.name,
 			quantity: item.quantity,
 			price: item.product.price,
-			unit: item.product.unit,
+			unit: item.product.unit || "item",
 		}));
 
 		const newOrder = await addOrder({
