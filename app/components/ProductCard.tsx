@@ -37,14 +37,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 	return (
 		<article
 			onClick={() => onOpenDetail(product)}
-			className={`group flex flex-col bg-white rounded-2xl overflow-hidden border transition-all duration-300 cursor-pointer relative ${
+			className={`store-product-card group flex flex-col bg-white rounded-2xl overflow-hidden border transition-all duration-300 cursor-pointer relative ${
 				isDisabled
 					? "border-[#E8DCCB] opacity-95 hover:border-stone-400"
 					: "border-[#E8DCCB] hover:border-[#DE2A2D]/50 hover:shadow-xl hover:-translate-y-0.5"
 			}`}
 		>
 			{/* Image container */}
-			<div className="relative aspect-square w-full overflow-hidden bg-gradient-to-b from-[#FAF7F2] to-[#F5EFE6] flex items-center justify-center p-3">
+			<div className="store-product-media relative aspect-square w-full overflow-hidden bg-gradient-to-b from-[#FAF7F2] to-[#F5EFE6] flex items-center justify-center p-3">
 				<img
 					src={imageSrc}
 					alt={product.name}
@@ -94,7 +94,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 			</div>
 
 			{/* Card Content */}
-			<div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3 text-right">
+			<div className="store-product-content p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3 text-right">
 				<div>
 					{/* Origin & Unit */}
 					<div className="flex items-center justify-between text-xs text-stone-500 mb-1.5">
@@ -136,7 +136,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 					<button
 						onClick={handleQuickAdd}
 						disabled={isDisabled}
-						className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
+						className={`store-product-add flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
 							!isDisabled
 								? "bg-[#2C2014] text-amber-200 hover:bg-[#DE2A2D] hover:text-white shadow-sm active:scale-95"
 								: "bg-stone-100 text-stone-400 border border-stone-200 cursor-not-allowed"
