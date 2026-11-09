@@ -1153,7 +1153,7 @@ export const MetaAdsMcpServer: React.FC = () => {
 								</button>
 
 								<button
-									onClick={() => setCmsTab("leads")}
+									onClick={() => setCmsTab("marketing")}
 									className="w-full py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
 								>
 									<span>{cmsT("cms_413")}</span>
