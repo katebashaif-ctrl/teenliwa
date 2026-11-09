@@ -126,7 +126,14 @@ export const MetaCampaignsManager: React.FC = () => {
 
 	const handleCreateCampaign = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!name.trim()) return;
+		if (!name.trim()) {
+			showToast("اسم الحملة مطلوب", "أدخل اسم الحملة قبل الحفظ.", "warning");
+			return;
+		}
+		if (!Number.isFinite(Number(dailyBudget)) || Number(dailyBudget) < 0) {
+			showToast("ميزانية غير صالحة", "يجب أن تكون الميزانية اليومية رقماً غير سالب بالدرهم الإماراتي.", "warning");
+			return;
+		}
 
 		// Local and server dispatch
 		addMetaCampaign({
@@ -635,8 +642,9 @@ export const MetaCampaignsManager: React.FC = () => {
 									<div className="space-y-1.5">
 										<input
 											type="number"
-											min={30}
-											max={10000}
+											min={0}
+											max={1000000}
+											step={0.01}
 											value={dailyBudget}
 											onChange={(e) => setDailyBudget(Number(e.target.value))}
 											className="w-full p-2.5 border border-stone-300 rounded-xl font-bold font-mono focus:border-amber-800 focus:outline-none"
@@ -673,8 +681,12 @@ export const MetaCampaignsManager: React.FC = () => {
 										className="w-full p-2.5 border border-stone-300 rounded-xl focus:border-amber-800 focus:outline-none bg-white"
 									>
 										<option value="rutab">{cmsT("cms_83")}</option>
+										<option value="dates">التمور</option>
 										<option value="faqa">{cmsT("cms_84")}</option>
+										<option value="truffle">الفقع الفاخر</option>
 										<option value="fig">{cmsT("cms_85")}</option>
+										<option value="nuts">المكسرات</option>
+										<option value="fruits">الفواكه</option>
 										<option value="boxes">{cmsT("cms_86")}</option>
 										<option value="all">{cmsT("cms_87")}</option>
 									</select>
@@ -831,68 +843,38 @@ export const MetaCampaignsManager: React.FC = () => {
 							</button>
 						</div>
 
-						<div className="space-y-3 text-xs">
-							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									
-									{cmsT("cms_104")}
-								</label>
-								<input
-									type="text"
-									value={configForm.adAccountId}
-									onChange={(e) =>
-										setConfigForm({ ...configForm, adAccountId: e.target.value })
-									}
-									dir="ltr"
-									className="w-full p-2 border border-stone-300 rounded-lg font-mono"
-								/>
+						<div className="space-y-4 text-xs">
+							<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 leading-6 text-amber-950">
+								<strong className="block">رمز Meta لا يُخزّن في قاعدة البيانات</strong>
+								<span>أضف META_ACCESS_TOKEN كـ Cloudflare Worker Secret. هذه الشاشة تحفظ المعرّفات والإعدادات غير السرية فقط في store_settings.</span>
 							</div>
-
 							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									
-									{cmsT("cms_105")}
-								</label>
-								<input
-									type="password"
-									value={configForm.accessToken}
-									onChange={(e) =>
-										setConfigForm({ ...configForm, accessToken: e.target.value })
-									}
-									dir="ltr"
-									className="w-full p-2 border border-stone-300 rounded-lg font-mono"
-								/>
+								<label className="block font-semibold text-stone-800 mb-1">معرّف حساب الإعلانات (Ad Account ID)</label>
+								<input type="text" maxLength={80} value={configForm.adAccountId} onChange={(e) => setConfigForm({ ...configForm, adAccountId: e.target.value.trim() })} dir="ltr" className="w-full rounded-lg border border-stone-300 p-2.5 font-mono" placeholder="act_..." />
 							</div>
-
-							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									Meta Pixel ID
-								</label>
-								<input
-									type="text"
-									value={configForm.pixelId}
-									onChange={(e) =>
-										setConfigForm({ ...configForm, pixelId: e.target.value })
-									}
-									dir="ltr"
-									className="w-full p-2 border border-stone-300 rounded-lg font-mono"
-								/>
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+								<div>
+									<label className="block font-semibold text-stone-800 mb-1">Meta Pixel ID</label>
+									<input type="text" maxLength={80} value={configForm.pixelId} onChange={(e) => setConfigForm({ ...configForm, pixelId: e.target.value.trim() })} dir="ltr" className="w-full rounded-lg border border-stone-300 p-2.5 font-mono" />
+								</div>
+								<div>
+									<label className="block font-semibold text-stone-800 mb-1">Commerce Catalog ID</label>
+									<input type="text" maxLength={80} value={configForm.catalogId} onChange={(e) => setConfigForm({ ...configForm, catalogId: e.target.value.trim() })} dir="ltr" className="w-full rounded-lg border border-stone-300 p-2.5 font-mono" />
+								</div>
 							</div>
-
-							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									
-									{cmsT("cms_106")}
-								</label>
-								<input
-									type="text"
-									value={configForm.catalogId}
-									onChange={(e) =>
-										setConfigForm({ ...configForm, catalogId: e.target.value })
-									}
-									dir="ltr"
-									className="w-full p-2 border border-stone-300 rounded-lg font-mono"
-								/>
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+								<div>
+									<label className="block font-semibold text-stone-800 mb-1">Business Manager ID</label>
+									<input type="text" maxLength={80} value={configForm.businessManagerId} onChange={(e) => setConfigForm({ ...configForm, businessManagerId: e.target.value.trim() })} dir="ltr" className="w-full rounded-lg border border-stone-300 p-2.5 font-mono" />
+								</div>
+								<div>
+									<label className="block font-semibold text-stone-800 mb-1">Graph API Version</label>
+									<select value={configForm.apiVersion} onChange={(e) => setConfigForm({ ...configForm, apiVersion: e.target.value })} dir="ltr" className="w-full rounded-lg border border-stone-300 bg-white p-2.5 font-mono">
+										<option value="v21.0">v21.0</option>
+										<option value="v22.0">v22.0</option>
+										<option value="v23.0">v23.0</option>
+									</select>
+								</div>
 							</div>
 						</div>
 
