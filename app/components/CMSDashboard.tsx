@@ -73,7 +73,6 @@ export const CMSDashboard: React.FC = () => {
 		ordersStorageType,
 		settings,
 		updateSettings,
-		resetToSampleData,
 		
 		cmsTab,
 		setCmsTab,
@@ -1263,151 +1262,90 @@ export const CMSDashboard: React.FC = () => {
 						<form
 							onSubmit={async (e) => {
 								e.preventDefault();
-								await updateSettings(settingsForm);
+								const values = {
+									storeName: settingsForm.storeName.trim(),
+									storeTagline: settingsForm.storeTagline.trim(),
+									whatsappNumber: settingsForm.whatsappNumber.trim(),
+									contactPhone: settingsForm.contactPhone.trim(),
+									freeDeliveryThreshold: Number(settingsForm.freeDeliveryThreshold),
+									standardDeliveryFee: Number(settingsForm.standardDeliveryFee),
+									bannerNotice: settingsForm.bannerNotice.trim(),
+									bannerActive: Boolean(settingsForm.bannerActive),
+									featuredSeason: String(settingsForm.featuredSeason || "").trim(),
+									facebookCatalogFeedEnabled: Boolean(settingsForm.facebookCatalogFeedEnabled),
+									currency: "AED",
+								};
+								if (!Number.isFinite(values.freeDeliveryThreshold) || values.freeDeliveryThreshold < 0 ||
+									!Number.isFinite(values.standardDeliveryFee) || values.standardDeliveryFee < 0) {
+									showToast("تحقق من رسوم التوصيل", "يجب إدخال مبالغ صحيحة غير سالبة بالدرهم الإماراتي.", "warning");
+									return;
+								}
+								await updateSettings(values);
 							}}
-							className="space-y-4 text-xs"
+							className="space-y-5 text-xs"
 						>
 							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									اسم المتجر
-								</label>
-								<input
-									type="text"
-									value={settingsForm.storeName}
-									onChange={(e) =>
-										setSettingsForm({ ...settingsForm, storeName: e.target.value })
-									}
-									className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800"
-								/>
+								<label className="block font-semibold text-stone-800 mb-1.5">اسم المتجر *</label>
+								<input type="text" required maxLength={120} value={settingsForm.storeName} onChange={(e) => setSettingsForm({ ...settingsForm, storeName: e.target.value })} className="w-full rounded-xl border border-stone-300 bg-white p-3 focus:border-amber-800 focus:outline-none" />
 							</div>
 
 							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									الوصف والعنوان الترويجي
-								</label>
-								<input
-									type="text"
-									value={settingsForm.storeTagline}
-									onChange={(e) =>
-										setSettingsForm({
-											...settingsForm,
-											storeTagline: e.target.value,
-										})
-									}
-									className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800"
-								/>
+								<label className="block font-semibold text-stone-800 mb-1.5">الوصف والعنوان الترويجي</label>
+								<input type="text" maxLength={240} value={settingsForm.storeTagline} onChange={(e) => setSettingsForm({ ...settingsForm, storeTagline: e.target.value })} className="w-full rounded-xl border border-stone-300 bg-white p-3 focus:border-amber-800 focus:outline-none" />
 							</div>
 
 							<div>
-								<label className="block font-semibold text-stone-800 mb-1">
-									نص شريط الإعلان العلوي
+								<label className="block font-semibold text-stone-800 mb-1.5">نص شريط الإعلان العلوي</label>
+								<textarea value={settingsForm.bannerNotice} onChange={(e) => setSettingsForm({ ...settingsForm, bannerNotice: e.target.value })} rows={2} maxLength={300} className="w-full rounded-xl border border-stone-300 bg-white p-3 focus:border-amber-800 focus:outline-none" />
+							</div>
+
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+								<label className="flex cursor-pointer items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+									<input type="checkbox" checked={Boolean(settingsForm.bannerActive)} onChange={(e) => setSettingsForm({ ...settingsForm, bannerActive: e.target.checked })} className="h-4 w-4" />
+									<span><strong className="block text-stone-800">إظهار شريط الإعلان</strong><small className="text-stone-500">bannerActive</small></span>
 								</label>
-								<textarea
-									value={settingsForm.bannerNotice}
-									onChange={(e) =>
-										setSettingsForm({
-											...settingsForm,
-											bannerNotice: e.target.value,
-										})
-									}
-									rows={2}
-									className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800"
-								/>
+								<label className="flex cursor-pointer items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+									<input type="checkbox" checked={Boolean(settingsForm.facebookCatalogFeedEnabled)} onChange={(e) => setSettingsForm({ ...settingsForm, facebookCatalogFeedEnabled: e.target.checked })} className="h-4 w-4" />
+									<span><strong className="block text-stone-800">تفعيل إعداد خلاصة Meta</strong><small className="text-stone-500">facebookCatalogFeedEnabled</small></span>
+								</label>
 							</div>
 
-							<div className="grid grid-cols-2 gap-3">
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 								<div>
-									<label className="block font-semibold text-stone-800 mb-1">
-										رقم الواتساب للطلبات
-									</label>
-									<input
-										type="text"
-										value={settingsForm.whatsappNumber}
-										onChange={(e) =>
-											setSettingsForm({
-												...settingsForm,
-												whatsappNumber: e.target.value,
-											})
-										}
-										dir="ltr"
-										className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800 text-right"
-									/>
+									<label className="block font-semibold text-stone-800 mb-1.5">الموسم المميز</label>
+									<input type="text" maxLength={100} value={settingsForm.featuredSeason || ""} onChange={(e) => setSettingsForm({ ...settingsForm, featuredSeason: e.target.value })} placeholder="موسم القيظ" className="w-full rounded-xl border border-stone-300 bg-white p-3 focus:border-amber-800 focus:outline-none" />
 								</div>
-
 								<div>
-									<label className="block font-semibold text-stone-800 mb-1">
-										رقم هاتف خدمة العملاء
-									</label>
-									<input
-										type="text"
-										value={settingsForm.contactPhone}
-										onChange={(e) =>
-											setSettingsForm({
-												...settingsForm,
-												contactPhone: e.target.value,
-											})
-										}
-										dir="ltr"
-										className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800 text-right"
-									/>
+									<label className="block font-semibold text-stone-800 mb-1.5">عملة المتجر</label>
+									<input type="text" value="AED — الدرهم الإماراتي" readOnly className="w-full rounded-xl border border-stone-200 bg-stone-100 p-3 font-semibold text-stone-500" />
+									<p className="mt-1 text-[10px] text-stone-400">موحّدة مع D1 وعمليات الطلب والدفع.</p>
 								</div>
 							</div>
 
-							<div className="grid grid-cols-2 gap-3">
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 								<div>
-									<label className="block font-semibold text-stone-800 mb-1">
-										حد التوصيل المجاني (د.إ)
-									</label>
-									<input
-										type="number"
-										value={settingsForm.freeDeliveryThreshold}
-										onChange={(e) =>
-											setSettingsForm({
-												...settingsForm,
-												freeDeliveryThreshold: Number(e.target.value),
-											})
-										}
-										className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800"
-									/>
+									<label className="block font-semibold text-stone-800 mb-1.5">رقم الواتساب للطلبات *</label>
+									<input type="tel" required maxLength={30} value={settingsForm.whatsappNumber} onChange={(e) => setSettingsForm({ ...settingsForm, whatsappNumber: e.target.value })} dir="ltr" className="w-full rounded-xl border border-stone-300 bg-white p-3 text-left focus:border-amber-800 focus:outline-none" placeholder="+971500000000" />
 								</div>
-
 								<div>
-									<label className="block font-semibold text-stone-800 mb-1">
-										رسوم التوصيل القياسي (د.إ)
-									</label>
-									<input
-										type="number"
-										value={settingsForm.standardDeliveryFee}
-										onChange={(e) =>
-											setSettingsForm({
-												...settingsForm,
-												standardDeliveryFee: Number(e.target.value),
-											})
-										}
-										className="w-full p-2 border border-stone-300 rounded-lg focus:outline-none focus:border-amber-800"
-									/>
+									<label className="block font-semibold text-stone-800 mb-1.5">رقم هاتف خدمة العملاء *</label>
+									<input type="tel" required maxLength={30} value={settingsForm.contactPhone} onChange={(e) => setSettingsForm({ ...settingsForm, contactPhone: e.target.value })} dir="ltr" className="w-full rounded-xl border border-stone-300 bg-white p-3 text-left focus:border-amber-800 focus:outline-none" placeholder="+971500000000" />
 								</div>
 							</div>
 
-							<div className="pt-4 flex items-center justify-between">
-								<button
-									type="submit"
-									className="px-6 py-2.5 bg-[#2C2014] text-amber-200 font-bold rounded-lg hover:bg-black transition-colors"
-								>
-									حفظ الإعدادات
-								</button>
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+								<div>
+									<label className="block font-semibold text-stone-800 mb-1.5">حد التوصيل المجاني (AED) *</label>
+									<input type="number" required min="0" step="0.01" inputMode="decimal" value={settingsForm.freeDeliveryThreshold} onChange={(e) => setSettingsForm({ ...settingsForm, freeDeliveryThreshold: Number(e.target.value) })} className="w-full rounded-xl border border-stone-300 bg-white p-3 tabular-nums focus:border-amber-800 focus:outline-none" />
+								</div>
+								<div>
+									<label className="block font-semibold text-stone-800 mb-1.5">رسوم التوصيل القياسي (AED) *</label>
+									<input type="number" required min="0" step="0.01" inputMode="decimal" value={settingsForm.standardDeliveryFee} onChange={(e) => setSettingsForm({ ...settingsForm, standardDeliveryFee: Number(e.target.value) })} className="w-full rounded-xl border border-stone-300 bg-white p-3 tabular-nums focus:border-amber-800 focus:outline-none" />
+								</div>
+							</div>
 
-								<button
-									type="button"
-									onClick={() => {
-										resetToSampleData();
-										showToast("استرجاع البيانات", "تم استرجاع كافة المنتجات والطلبات النموذجية بنجاح", "info");
-									}}
-									className="flex items-center gap-1.5 text-xs text-stone-500 hover:text-rose-600 transition-colors"
-								>
-									<RotateCcw className="w-3.5 h-3.5" />
-									<span>استرجاع البيانات النموذجية</span>
-								</button>
+							<div className="flex justify-end border-t border-stone-200 pt-4">
+								<button type="submit" className="rounded-xl bg-[#2C2014] px-7 py-3 font-bold text-amber-100 shadow hover:bg-black">حفظ إعدادات المتجر في D1</button>
 							</div>
 						</form>
 					</div>
