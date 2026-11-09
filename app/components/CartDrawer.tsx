@@ -125,6 +125,7 @@ export const CartDrawer: React.FC = () => {
 			return null;
 		});
 		if (!newOrder) return;
+		const finalOrderNumber = newOrder.orderNumber || String((newOrder as any).order?.orderNumber || "");
 		// 1. If Ziina Payment Gateway selected: initiate Ziina Payment Intent and redirect
 		if (paymentMethod === "ziina") {
 			setZiinaRedirecting(true);
@@ -250,8 +251,8 @@ export const CartDrawer: React.FC = () => {
 		<div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm animate-fadeIn">
 			<div className="absolute inset-0" onClick={() => setIsCartOpen(false)} />
 
-			<div className="fixed inset-y-0 right-0 max-w-full flex pl-10 text-right">
-				<div className="w-screen max-w-md bg-white shadow-2xl flex flex-col justify-between border-l border-[#D6BE9F]">
+			<div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10 text-right">
+				<div className="w-screen sm:max-w-md bg-white shadow-2xl flex flex-col justify-between border-l border-[#D6BE9F] safe-pb">
 					{/* Header */}
 					<div className="p-4 sm:p-5 border-b border-stone-200 bg-[#FAF7F2] flex items-center justify-between">
 						<div className="flex items-center gap-2">
