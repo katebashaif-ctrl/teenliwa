@@ -309,8 +309,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 	useEffect(() => {
 		setIsClient(true);
 		try {
-			if (savedSettings) { const parsedSettings = JSON.parse(savedSettings); delete parsedSettings.ziinaApiKey; setSettings({ ...INITIAL_SETTINGS, ...parsedSettings, ziinaApiKey: "" }); }
-
 			const savedCart = localStorage.getItem(STORAGE_KEYS.CART);
 			if (savedCart) setCart(JSON.parse(savedCart));
 
@@ -333,7 +331,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 		fetch("/api/admin/session", { credentials: "same-origin" })
 			.then((res) => res.ok ? res.json() : { authenticated: false })
-			.then((data) => {
+			.then((data: any) => {
 				const authenticated = data.authenticated === true;
 				setIsAdminAuthenticated(authenticated);
 				if (authenticated) {
@@ -341,7 +339,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 					refreshMarketingLeads();
 					fetch("/api/meta/campaigns", { credentials: "same-origin" })
 						.then((response) => response.ok ? response.json() : null)
-						.then((result) => {
+						.then((result: any) => {
 							if (result?.success) {
 								setMetaCampaigns(Array.isArray(result.campaigns) ? result.campaigns : []);
 								if (result.config) setMetaConfig({ ...INITIAL_META_CONFIG, ...result.config, accessToken: "" });
@@ -356,7 +354,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 		refreshProductsFromServer();
 		fetch("/api/settings", { credentials: "same-origin" })
 			.then((res) => res.ok ? res.json() : null)
-			.then((data) => {
+			.then((data: any) => {
 				if (data?.success && data.settings) {
 					setSettings((prev) => ({ ...prev, ...data.settings, ziinaApiKey: "" }));
 				}
@@ -892,7 +890,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "update_status", campaignId: id, status }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Campaign status update failed");
 			showToast(t("toasts.campaignStatus"), status);
 		}).catch(async (error) => {
@@ -908,7 +906,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "update_budget", campaignId: id, dailyBudget: budget }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Campaign budget update failed");
 			showToast(t("toasts.budgetUpdated"), `${budget} AED`);
 		}).catch(async (error) => {
@@ -923,7 +921,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "delete_campaign", campaignId: id }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Campaign deletion failed");
 			setMetaCampaigns((previous) => previous.filter((campaign) => campaign.id !== id));
 			showToast(t("toasts.campaignDeleted"), t("toasts.campaignDeletedMsg"), "info");
@@ -958,7 +956,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "create_lead", lead: leadData }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success || !data.lead) throw new Error(data.error || "Lead could not be saved");
 			setMarketingLeads((previous) => [data.lead, ...previous.filter((lead) => lead.id !== draft.id)]);
 			showToast(t("toasts.leadAdded"), data.lead.customerName);
@@ -976,7 +974,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "update_status", id, status }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Lead status could not be saved");
 			setMarketingLeads((previous) => previous.map((lead) => lead.id === id ? { ...lead, leadStatus: status, status } : lead));
 			showToast(t("toasts.leadStatusUpdated"), status);
@@ -992,7 +990,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "update_score", id, score, summary }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Lead score could not be saved");
 			setMarketingLeads((previous) => previous.map((lead) => lead.id === id ? { ...lead, aiScore: score, aiSummary: summary || lead.aiSummary } : lead));
 			showToast(t("toasts.leadScoreUpdated"), t("toasts.leadScoreUpdatedMsg"));
@@ -1008,7 +1006,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "delete_lead", id }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Lead could not be archived");
 			setMarketingLeads((previous) => previous.filter((lead) => lead.id !== id));
 			showToast(t("toasts.leadDeleted"), t("toasts.leadDeletedMsg"), "info");
@@ -1028,7 +1026,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 			body: JSON.stringify({ intent: "update_config", config: safeConfig }),
 		}).then(async (response) => {
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Meta settings could not be saved");
 			setMetaConfig({ ...INITIAL_META_CONFIG, ...data.config, accessToken: "" });
 			showToast(t("toasts.metaSettings"), t("toasts.metaSettingsMsg"));
@@ -1047,7 +1045,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				headers: { "Content-Type": "application/json", ...getAdminRequestHeaders() },
 				body: JSON.stringify({ settings: safeNewSettings }),
 			});
-			const data = await response.json().catch(() => ({}));
+			const data: any = await response.json().catch(() => ({}));
 			if (!response.ok || !data.success) throw new Error(data.error || "Store settings could not be saved");
 			setSettings((previous) => ({ ...previous, ...safeNewSettings, ziinaApiKey: "", ziinaWebhookSecret: "" }));
 			showToast(t("toasts.settingsSaved"), t("toasts.settingsSavedMsg"));
