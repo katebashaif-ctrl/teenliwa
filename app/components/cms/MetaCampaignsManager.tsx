@@ -401,9 +401,14 @@ export const MetaCampaignsManager: React.FC = () => {
 														cmsT("cms_56"),
 														camp.dailyBudget.toString(),
 													);
-													if (newBudget && !isNaN(Number(newBudget))) {
-														updateCampaignBudget(camp.id, Number(newBudget));
+													if (newBudget !== null && newBudget.trim() !== "") {
+													const parsedBudget = Number(newBudget);
+													if (Number.isFinite(parsedBudget) && parsedBudget >= 0) {
+														updateCampaignBudget(camp.id, parsedBudget);
+													} else {
+														showToast("ميزانية غير صالحة", "أدخل مبلغاً صحيحاً غير سالب بالدرهم الإماراتي.", "warning");
 													}
+												}
 												}}
 												className="text-stone-400 hover:text-stone-700 text-[10px] underline"
 												title={cmsT("cms_57")}
