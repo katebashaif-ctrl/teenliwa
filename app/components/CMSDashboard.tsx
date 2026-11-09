@@ -323,19 +323,19 @@ export const CMSDashboard: React.FC = () => {
 	});
 
 	return (
-		<div className="bg-[#FAF7F2] min-h-screen pb-16 text-right">
+		<div className="bg-[#FAF7F2] min-h-screen pb-8 sm:pb-16 text-right overflow-x-hidden">
 			{/* CMS Header Bar */}
-			<div className="bg-[#2C2014] text-white border-b border-[#574127] sticky top-0 z-30">
-				<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-					<div className="flex items-center gap-3">
+			<div className="bg-[#2C2014] text-white border-b border-[#574127] sticky top-16 z-30 shadow-sm">
+				<div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-16 py-2 flex items-center justify-between gap-3">
+					<div className="flex min-w-0 items-center gap-2 sm:gap-3">
 						<span className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center font-bold text-sm">
 							CMS
 						</span>
-						<div>
-							<h1 className="font-serif text-lg font-bold text-amber-100">
+						<div className="min-w-0">
+							<h1 className="font-serif text-base sm:text-lg font-bold text-amber-100 truncate">
 								لوحة تحكم تين ليوا
 							</h1>
-							<p className="text-[11px] text-stone-400">
+							<p className="hidden sm:block text-[11px] text-stone-400 truncate">
 								إدارة المحاصيل والطلبات والمخزون وسحابة Cloudflare R2
 							</p>
 						</div>
@@ -361,7 +361,7 @@ export const CMSDashboard: React.FC = () => {
 				</div>
 
 				{/* CMS Navigation Tabs */}
-				<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-2 overflow-x-auto scrollbar-none border-t border-[#574127]/60">
+				<div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none border-t border-[#574127]/60">
 					<button
 						onClick={() => setCmsTab("overview")}
 						className={`flex items-center gap-2 px-4 py-3 text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
@@ -479,7 +479,7 @@ export const CMSDashboard: React.FC = () => {
 			</div>
 
 			{/* Main Content Area */}
-			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+			<div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6">
 				{/* Route & Direct URL Instructions Banner */}
 				<CmsRouteInstructionsBanner />
 
@@ -541,7 +541,7 @@ export const CMSDashboard: React.FC = () => {
 						</div>
 
 						{/* Quick Action Strip */}
-						<div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-[#F5EFE6] border border-[#E8DCCB] rounded-xl">
+						<div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3 p-3 sm:p-4 bg-[#F5EFE6] border border-[#E8DCCB] rounded-xl">
 							<div className="flex items-center gap-2">
 								<Sparkles className="w-4 h-4 text-amber-700" />
 								<span className="text-xs font-bold text-[#574127]">
