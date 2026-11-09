@@ -434,8 +434,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ username, password: pass }),
 			});
-			const data = await response.json() as any;
-			if (!response.ok || !data.success) return false;
+			const data = await response.json().catch(() => ({})) as any;
+			if (!response.ok || !data.success) {
+				showToast(
+					"تعذر تسجيل الدخول",
+					String(data?.error || `فشل تسجيل الدخول (HTTP ${response.status})`),
+					"warning",
+				);
+				return false;
+			}
 			setIsAdminAuthenticated(true);
 			setIsAdminLoginModalOpen(false);
 			setCurrentView("cms");
@@ -445,7 +452,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 			await refreshMetaCampaigns();
 			await refreshMarketingLeads();
 			return true;
-		} catch { return false; }
+		} catch (error) {
+			showToast("تعذر الاتصال بالخادم", error instanceof Error ? error.message : "تحقق من النشر والاتصال ثم حاول مرة أخرى", "warning");
+			return false;
+		}
 	};
 
 	const adminLogout = async () => {
